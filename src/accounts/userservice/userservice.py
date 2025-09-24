@@ -188,16 +188,17 @@ def create_app():
                 raise PermissionError('invalid login')
 
             full_name = '{} {}'.format(user['firstname'], user['lastname'])
-            exp_time = datetime.utcnow() + timedelta(seconds=app.config['EXPIRY_SECONDS'])
-            payload = {
+
+            claims = {
+                'iss': 'userservice',
                 'user': username,
                 'acct': user['accountid'],
                 'name': full_name,
                 'iat': datetime.utcnow(),
-                'exp': exp_time,
+                'exp': datetime.utcnow() + timedelta(seconds=app.config['EXPIRY_SECONDS']),
             }
             app.logger.debug('Creating jwt token.')
-            token = jwt.encode(payload, app.config['PRIVATE_KEY'], algorithm='RS256')
+            token = jwt.encode(claims, app.config['PRIVATE_KEY'], algorithm='RS256')
             app.logger.info('Login Successful.')
             return jsonify({'token': token}), 200
 
@@ -222,7 +223,7 @@ def create_app():
     app.logger.info('Starting userservice.')
 
     # Set up tracing and export spans to Cloud Trace.
-    if os.environ['ENABLE_TRACING'] == "true":
+    if os.environ.get('ENABLE_TRACING') == "true":
         app.logger.info("✅ Tracing enabled.")
         # Set up tracing and export spans to Cloud Trace
         trace.set_tracer_provider(TracerProvider())

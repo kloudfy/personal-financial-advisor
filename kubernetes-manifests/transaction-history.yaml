@@ -69,9 +69,13 @@ spec:
             - name: PORT
               value: "8080"
             - name: ENABLE_TRACING
-              value: "true"
-            - name: ENABLE_METRICS
-              value: "true"
+              value: "false"
+            - name: OTEL_JAVAAGENT_ENABLED
+              value: "false"
+            - name: JWT_ISSUER
+              value: "userservice"
+            - name: PUB_KEY_PATH
+              value: "/tmp/.ssh/publickey"
             - name: POLL_MS
               value: "100"
             - name: CACHE_SIZE
@@ -93,7 +97,7 @@ spec:
                 name: environment-config
             - configMapRef:
                 name: ledger-db-config
-          image: us-central1-docker.pkg.dev/bank-of-anthos-ci/bank-of-anthos/transactionhistory:v0.6.7@sha256:8822d9130bd21895e453f88c0bf4eda3c8e23ce17f9eaefe8c3f71afe09bea7c
+          image: us-central1-docker.pkg.dev/gke-hackathon-469600/bank-of-anthos-repo/transactionhistory:v0.6.8
           livenessProbe:
             httpGet:
               path: /healthy

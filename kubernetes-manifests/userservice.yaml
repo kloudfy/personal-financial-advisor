@@ -64,12 +64,17 @@ spec:
     spec:
       containers:
         - env:
+            - name: GOOGLE_CLOUD_PROJECT
+              valueFrom:
+                configMapKeyRef:
+                  name: environment-config
+                  key: GOOGLE_CLOUD_PROJECT
             - name: VERSION
               value: v0.6.7
             - name: PORT
               value: "8080"
             - name: ENABLE_TRACING
-              value: "true"
+              value: "false"
             - name: TOKEN_EXPIRY_SECONDS
               value: "3600"
             - name: PRIV_KEY_PATH
@@ -81,7 +86,7 @@ spec:
                 name: environment-config
             - configMapRef:
                 name: accounts-db-config
-          image: us-central1-docker.pkg.dev/bank-of-anthos-ci/bank-of-anthos/userservice:v0.6.7@sha256:932045a3bdba7b32fffe4087b544f4aa8e2952f3440ecaa92142c13407249732
+          image: us-central1-docker.pkg.dev/gke-hackathon-469600/bank-of-anthos-repo/userservice:v5
           name: userservice
           ports:
             - containerPort: 8080

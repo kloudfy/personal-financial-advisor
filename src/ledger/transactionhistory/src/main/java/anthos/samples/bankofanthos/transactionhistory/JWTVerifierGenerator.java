@@ -9,7 +9,7 @@
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * WITHOUT WARRANTIES, CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
@@ -42,28 +42,37 @@ public class JWTVerifierGenerator {
 
     @Bean (name = "verifier")
     public JWTVerifier generateJWTVerifier(
-            @Value("${PUB_KEY_PATH}") final String publicKeyPath) {
+            @Value("${PUB_KEY_PATH}") final String publicKeyPath,
+            @Value("${JWT_ISSUER:userservice}") final String issuer) {
         // load public key from file
         try {
-            LOGGER.debug("Generating JWT token verifier");
+            LOGGER.info("Generating JWT token verifier with PUB_KEY_PATH={} and JWT_ISSUER={}", publicKeyPath, issuer);
             String keyStr =
                     new String(Files.readAllBytes(Paths.get(publicKeyPath)));
+            LOGGER.debug("Raw public key: {}", keyStr);
             keyStr = keyStr.replaceFirst("-----BEGIN PUBLIC KEY-----", "")
                     .replaceFirst("-----END PUBLIC KEY-----", "")
                     .replaceAll("\\s", "");
+            if (keyStr.isEmpty()) {
+                LOGGER.error("Public key is empty after processing");
+                throw new GenerateKeyException("Public key is empty", null);
+            }
             byte[] keyBytes = Base64.getDecoder().decode(keyStr);
             KeyFactory kf = KeyFactory.getInstance("RSA");
             X509EncodedKeySpec keySpecX509 = new X509EncodedKeySpec(keyBytes);
             RSAPublicKey publicKey =
                     (RSAPublicKey) kf.generatePublic(keySpecX509);
-            // Initialize JWT verifier.
+            // Initialize JWT verifier
             Algorithm algorithm = Algorithm.RSA256(publicKey, null);
-            return JWT.require(algorithm).build();
+            JWTVerifier verifier = JWT.require(algorithm)
+                                     .withIssuer(issuer)
+                                     .build();
+            LOGGER.info("JWT verifier created successfully");
+            return verifier;
         } catch (IOException
                 | NoSuchAlgorithmException
                 | InvalidKeySpecException e) {
-            LOGGER.error(String.format("Failed initializing JWT verifier: %s",
-                e.toString()));
+            LOGGER.error("Failed initializing JWT verifier: {}", e.toString());
             throw new GenerateKeyException("Cannot generate key: ", e);
         }
     }
@@ -73,5 +82,4 @@ public class JWTVerifierGenerator {
             super(message, e);
         }
     }
-
 }
