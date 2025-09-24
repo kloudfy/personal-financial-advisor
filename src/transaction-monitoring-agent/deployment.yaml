@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: transaction-monitoring-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: transaction-monitoring-agent
+  template:
+    metadata:
+      labels:
+        app: transaction-monitoring-agent
+    spec:
+      containers:
+      - name: agent
+        image: us-central1-docker.pkg.dev/gke-hackathon-469600/bank-of-anthos-repo/transaction-monitoring-agent:v7
+        imagePullPolicy: Always
+        env:
+        - name: GEMINI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: gemini-api-key
+              key: api-key
+        - name: JWT
+          valueFrom:
+            secretKeyRef:
+              name: gemini-api-key
+              key: jwt
+        - name: ACCOUNT_ID
+          value: "1011226111"
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+          limits:
+            cpu: "200m"
+            memory: "256Mi"

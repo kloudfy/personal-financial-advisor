@@ -211,3 +211,7 @@ venv-*
 
 # go for ci
 go/
+# Local only (do not commit)
+sa-key.json
+*.key
+*.key.pub
