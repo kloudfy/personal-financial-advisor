@@ -81,106 +81,44 @@ kubectl get pods -l app=insight-agent
 
 ---
 
-## 🚀 Deploying Agent Gateway + MCP Server
-
-We provide **Kustomize overlays** that pin tested images in **Google Artifact Registry** so the demo works out-of-the-box.
-For hackathon judges, no extra configuration is required.
-
-### Quickstart (judge mode)
-
-```bash
-# Deploy dev overlay
-kustomize build src/ai/mcp-server/k8s/overlays/development | kubectl apply -f - 
-kustomize build src/ai/agent-gateway/k8s/overlays/development | kubectl apply -f -
-
-# Wait for pods
-kubectl rollout status deploy/mcp-server
-kubectl rollout status deploy/agent-gateway
-
-# Run smoke test
-./scripts/smoke-dev.sh
-```
-
-Expected output:
-
-```json
-{"agent_id":"agent-123","location":"us-central1","project":"<your-project>","status":"ok"}
-```
-
-and a sample spend analysis.
-
-### Overriding Images (portable mode)
-
-To deploy your **own build** of the services:
-
-```bash
-REG=us-central1-docker.pkg.dev/myproj/myrepo
-TAG=v0.2.0
-
-# edit the dev overlay in-place (from the overlay directory)
-# Example one-offs:
- kustomize edit set image agent-gateway=$REG/agent-gateway:$TAG
- kustomize edit set image mcp-server=$REG/mcp-server:$TAG
-```
-
-Then redeploy with the same `kustomize build … | kubectl apply -f -` commands above.
-
-Or use `kubectl set image` directly for a one-off:
-
-```bash
-kubectl set image deploy/mcp-server mcp-server=$REG/mcp-server:$TAG
-kubectl set image deploy/agent-gateway agent-gateway=$REG/agent-gateway:$TAG
-```
-
-### Why images are pinned
-
-* Ensures judges can deploy without errors (`InvalidImageName` avoided).
-* Provides reproducibility: these are the exact images that passed our smoke tests.
-* Still flexible: one-liners above (or Make targets below) let you swap in your own builds quickly.
-
 ---
 
-## 🧰 Make-based workflow (ergonomic pins + apply)
+## 🚀 Deploy and Test (Easy Mode)
 
-> **Prereqs:** `kustomize` installed; `kubectl` configured to your cluster; the images you reference exist in Artifact Registry.
+> **Prereqs:** `make`, `kustomize`, and `kubectl` installed; `kubectl` is configured to your cluster.
 
-We include convenience targets that **pin** images into the **dev overlays** using `kustomize edit set image`, then **apply**, **check status**, and **smoke test**.
+The included `Makefile` provides a simple, one-command workflow for deploying the services and running tests.
 
-Common variables (defaults shown; override on the command line):
+### Run the Demo
 
-* `PROJECT=gke-hackathon-469600`
-* `REPO=bank-of-anthos-repo`
-* `REGION=us-central1`
-* `REG=$(REGION)-docker.pkg.dev/$(PROJECT)/$(REPO)`
-* `MCP_TAG=v0.1.0`
-* `AGW_TAG=v0.1.2`
-* `NS=default`
-
-### Typical flow
+This is the easiest way to get started. This command will deploy all necessary resources and run a smoke test to verify the system is working.
 
 ```bash
-# 1) Pin to specific images (edits dev overlays in-place)
-make set-images REG=us-central1-docker.pkg.dev/<proj>/<repo> MCP_TAG=v0.1.0 AGW_TAG=v0.1.2
-
-# (optional) review and commit the changes
-git add src/ai/**/overlays/development/kustomization.yaml
-git commit -m "dev: pin mcp-server $(MCP_TAG) and agent-gateway $(AGW_TAG)"
-
-# 2) Apply the dev overlays
-make dev-apply
-
-# 3) Verify rollouts
-make dev-status
-
-# 4) Run smoke tests
-make dev-smoke
-
-# Helpers
-make show-images   # what’s live in the cluster
-make show-pins     # what’s pinned in the dev overlay files
+make demo
+```
+*or simply:*
+```bash
+make
 ```
 
-These targets update only the **dev** overlays; **base/prod** remain portable. Judges can deploy dev overlays without needing to build their own images.
+### Clean Up
+
+After you are done, you can tear down all the demo resources with a single command:
+
+```bash
+make demo-clean
+```
+
+### Advanced: Overriding Variables
+
+The `Makefile` uses default values for the GCP Project, region, and image tags. You can override these from the command line if you are deploying your own custom-built images.
+
+```bash
+# Example of building, pushing, and deploying a custom image
+make build-agw TAG=v0.3.0 PROJECT=my-project REPO=my-repo
+make set-image TAG=v0.3.0 PROJECT=my-project REPO=my-repo
+make dev-smoke
+```
 
 ---
 
