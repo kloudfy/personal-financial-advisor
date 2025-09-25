@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-gateway
+  labels:
+    app: agent-gateway
+    application: bank-of-anthos
+    tier: backend
+    team: platform
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: agent-gateway
+  template:
+    metadata:
+      labels:
+        app: agent-gateway
+        application: bank-of-anthos
+    spec:
+      serviceAccountName: agent-gateway
+      containers:
+        - name: agent-gateway
+          image: agent-gateway:latest # overridden by overlays
+          ports:
+            - containerPort: 8080
+          env:
+            - name: MANAGEMENT_METRICS_EXPORT_STACKDRIVER_ENABLED
+              value: "false"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent-gateway
+  labels:
+    app: agent-gateway
+spec:
+  selector:
+    app: agent-gateway
+  ports:
+    - port: 80
+      targetPort: 8080
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: agent-gateway
