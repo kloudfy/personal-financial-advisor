@@ -214,9 +214,11 @@ kustomize build src/ai/agent-gateway/k8s/overlays/production | kubectl apply -f 
 
 ## Lessons learned (short)
 
-* Prefer **Workload Identity** over SA keys; disable external metrics in dev (quiet mode).
-* Keep **overlays** clean and environment-specific; smallest blast radius for prod changes.
-* Vertex AI improves security (IAM), observability, and removes API keys from pods.
+* **Immutable Kubernetes Selectors:** Be cautious when using Kustomize's `commonLabels`, as they can attempt to change a Deployment's `spec.selector`, which is an immutable field. It's safer to use patches to apply labels only to the pod template (`spec.template.metadata.labels`).
+* **`ConfigMap` Updates Require Pod Restarts:** Changing a `ConfigMap` does not automatically trigger a rollout of the pods that use it. You must force a restart (e.g., `kubectl rollout restart deploy/...`) to ensure the pods pick up the new configuration.
+* **Service Endpoint Stabilization:** Even after a deployment rollout reports success, there can be a brief delay before the Kubernetes Service is fully routing traffic to the new pods. Test scripts should include a short `sleep` or a retry loop to account for this.
+* **Prefer `kubectl create job` for Tests:** For running non-interactive tasks in temporary pods (like smoke tests), `kubectl run` can have tricky flag combinations (`--rm`, `-i`). The most robust pattern is to use `kubectl create job`, `kubectl wait`, and then `kubectl logs` to avoid race conditions and warnings.
+* **Workload Identity > Service Account Keys:** Always prefer Workload Identity for authenticating to Google Cloud services from GKE to avoid managing and securing service account keys.
 
 ---
 
