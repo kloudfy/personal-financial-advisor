@@ -30,6 +30,10 @@ echo "==> Checking rollouts..."
 kubectl -n "$ns" rollout status deploy/mcp-server
 kubectl -n "$ns" rollout status deploy/agent-gateway
 
+echo
+echo "==> Waiting 10s for services to stabilize..."
+sleep 10
+
 echo "==> /healthz"
 run_curl_job curl-h curl -s "http://${ag_svc}/healthz"
 
