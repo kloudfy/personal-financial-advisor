@@ -65,10 +65,8 @@ def get_transaction_insights():
             log.exception("Failed to fetch transactions from transactionhistory")
             return jsonify(error=f"transactionhistory fetch failed: {e}"), 502
 
-    # 2) Produce simple rule-based insights (placeholder for actual LLM/Vertex call)
-    insights = _analyze_transactions_simple(txns)
-
-    return jsonify(insights), 200
+    # Modified: Return raw transactions instead of insights
+    return jsonify(txns), 200
 
 
 # ----- Helpers -----
@@ -94,10 +92,15 @@ def _fetch_transactions(account_id: str, window_days: int) -> List[Dict[str, Any
     This is a best-effort placeholder; wire to your real transactionhistory API if needed.
     Adjust path/params to match your service.
     """
-    url = f"{TRANSACTION_HISTORY_URL.rstrip('/')}/transactions"
-    params = {"account_id": account_id, "window_days": window_days}
-    log.info(f"GET {url} params={params}")
-    rsp = requests.get(url, params=params, timeout=TIMEOUT)
+    # TODO: A valid JWT should be passed from the caller (agent-gateway)
+    # and included in the headers.
+    headers = {"Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"} # Dummy token
+
+    url = f"{TRANSACTION_HISTORY_URL.rstrip('/')}/transactions/{account_id}"
+    # The real service does not use window_days, but we'll keep it for now.
+    params = {"window_days": window_days}
+    log.info(f"GET {url}")
+    rsp = requests.get(url, headers=headers, params=params, timeout=TIMEOUT)
     rsp.raise_for_status()
     data = rsp.json()
     # Expecting data to be a list of transaction dicts
