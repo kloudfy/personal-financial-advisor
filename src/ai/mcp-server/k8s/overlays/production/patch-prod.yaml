@@ -1,0 +1,17 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp-server
+spec:
+  template:
+    metadata:
+      annotations:
+        iam.gke.io/gcp-service-account: mcp-server @${GOOGLE_CLOUD_PROJECT}.iam.gserviceaccount.com
+    spec:
+      containers:
+        - name: mcp-server
+          env:
+            - name: MOCK_MODE
+              value: "false"
+            - name: MANAGEMENT_METRICS_EXPORT_STACKDRIVER_ENABLED
+              value: "true"
