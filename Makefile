@@ -1,3 +1,22 @@
+.PHONY: demo demo-clean dev-apply dev-smoke dev-status set-images
+
+# --- Default target ---
+default: demo
+
+# --- Demo Workflow ---
+demo:
+	@echo "==> Running demo: apply dev overlays + smoke tests"
+	$(MAKE) dev-apply
+	$(MAKE) dev-smoke
+
+# --- Clean up demo resources ---
+demo-clean:
+	@echo "==> Cleaning up demo resources..."
+	-kubectl delete deploy/mcp-server deploy/agent-gateway -n $(NS) --ignore-not-found
+	-kubectl delete svc/mcp-server svc/agent-gateway -n $(NS) --ignore-not-found
+	-kubectl delete sa/mcp-server sa/agent-gateway -n $(NS) --ignore-not-found
+	@echo "==> Demo resources cleaned up."
+
 PROJECT ?= gke-hackathon-469600
 REPO    ?= bank-of-anthos-repo
 export REGION  ?= us-central1
