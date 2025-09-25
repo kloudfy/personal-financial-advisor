@@ -17,7 +17,7 @@ echo
 
 echo "==> /chat (sample analysis)"
 kubectl -n "$ns" run curl-chat --rm -i --restart=Never --image="$curl_img" -- \
-  sh -lc "printf \'%s\' '$json' | curl -s -X POST -H 'Content-Type: application/json' -d @- http://${ag_svc}/chat" || true
+  sh -lc "curl -s -X POST -H 'Content-Type: application/json' -d '$json' http://${ag_svc}/chat" || true
 echo
 
 echo "==> Done."
