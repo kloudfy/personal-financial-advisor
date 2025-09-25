@@ -1,0 +1,23 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-gateway
+spec:
+  template:
+    metadata:
+      labels:
+        environment: development
+    spec:
+      containers:
+        - name: agent-gateway
+          env:
+            - name: ENV
+              value: "development"
+            - name: MANAGEMENT_METRICS_EXPORT_STACKDRIVER_ENABLED
+              value: "false"
+            - name: GOOGLE_CLOUD_PROJECT
+              value: "gke-hackathon-469600"
+            - name: VERTEX_LOCATION
+              value: "us-central1"
+            - name: VERTEX_AGENT_ID
+              value: "agent-123"
