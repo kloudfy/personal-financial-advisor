@@ -24,6 +24,9 @@ spec:
           image: agent-gateway:latest # overridden by overlays
           ports:
             - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: vertex-config
           env:
             - name: MANAGEMENT_METRICS_EXPORT_STACKDRIVER_ENABLED
               value: "false"

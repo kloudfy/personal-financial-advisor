@@ -1,3 +1,4 @@
+PROJECT ?= gke-hackathon-469600
 REPO    ?= bank-of-anthos-repo
 export REGION  ?= us-central1
 export GOOGLE_CLOUD_PROJECT ?= $(PROJECT)
@@ -13,14 +14,20 @@ MCP_DEV_OVERLAY := src/ai/mcp-server/k8s/overlays/development
 AG_DEV_OVERLAY  := src/ai/agent-gateway/k8s/overlays/development
 
 # --- Primary Workflow Targets ---
-dev-apply:
+dev-config:
+	@echo "==> (re)creating vertex-config ConfigMap..."
+	kubectl -n $(NS) create configmap vertex-config \
+	  --from-literal=GOOGLE_CLOUD_PROJECT=$(PROJECT) \
+	  --from-literal=VERTEX_LOCATION=$(VERTEX_LOCATION) \
+	  --from-literal=VERTEX_AGENT_ID=$(VERTEX_AGENT_ID) \
+	  --dry-run=client -o yaml | kubectl apply -f -
+
+dev-apply: dev-config
 	@echo "==> Applying dev overlays with pinned images..."
 	kustomize build $(MCP_DEV_OVERLAY) | kubectl apply -n $(NS) -f -
-	kustomize build $(AG_DEV_OVERLAY)  | \
-		sed -e "s/${GOOGLE_CLOUD_PROJECT}/gke-hackathon-469600/g" \
-		    -e "s/${VERTEX_LOCATION}/us-central1/g" \
-		    -e "s/${VERTEX_AGENT_ID}/agent-123/g" | \
-		kubectl apply -n $(NS) -f -
+	kustomize build $(AG_DEV_OVERLAY)  | kubectl apply -n $(NS) -f -
+	@echo "==> Forcing rollout of agent-gateway to pick up ConfigMap changes..."
+	kubectl -n $(NS) rollout restart deploy/agent-gateway
 dev-status:
 	@echo "==> Checking rollout status..."
 	kubectl -n $(NS) rollout status deploy/mcp-server
