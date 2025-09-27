@@ -1,6 +1,6 @@
 import os
 import logging
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from flask import Flask, request, jsonify
 import requests
@@ -11,7 +11,6 @@ log = logging.getLogger("agent-gateway")
 
 # --- Configuration (env) ---
 MCP_SERVER_URL = os.getenv("MCP_SERVER_URL", "http://mcp-server.default.svc.cluster.local")
-MCP_TOOL_PATH = os.getenv("MCP_TOOL_PATH", "/tools/get_transaction_insights")
 TIMEOUT = float(os.getenv("HTTP_TIMEOUT_SEC", "8.0"))
 
 # Optional Vertex/Project context (not strictly needed by this stub, but handy to surface)
@@ -57,25 +56,22 @@ def chat():
     if not account_id:
         return jsonify(error="account_id is required"), 400
 
-    payload = {
-        "account_id": account_id,
-        "window_days": window_days,
-        "prompt": prompt,
-    }
-
-    tool_url = f"{MCP_SERVER_URL.rstrip('/')}{MCP_TOOL_PATH}"
-    log.info(f"Calling MCP tool: {tool_url} (account_id={account_id}, window_days={window_days})")
-
+    # New: call MCP's real endpoint and forward Authorization
+    tool_url = f"{MCP_SERVER_URL.rstrip('/')}/transactions/{account_id}"
+    params = {"window_days": window_days}
+    fwd_auth = request.headers.get("Authorization", "")
+    headers = {"Authorization": fwd_auth} if fwd_auth else {}
+    log.info(f"Calling MCP: GET {tool_url} params={params} auth={'yes' if fwd_auth else 'no'}")
     try:
-        rsp = requests.post(tool_url, json=payload, timeout=TIMEOUT)
+        rsp = requests.get(tool_url, params=params, headers=headers, timeout=TIMEOUT)
         rsp.raise_for_status()
         data = rsp.json()
     except requests.HTTPError as e:
         log.exception("MCP call failed (HTTP)")
-        return jsonify(error=f"MCP tool error: {e}", details=rsp.text if 'rsp' in locals() else None), 502
+        return jsonify(error=f"MCP error: {e}", details=rsp.text if 'rsp' in locals() else None), 502
     except Exception as e:
         log.exception("MCP call failed")
-        return jsonify(error=f"MCP tool request failed: {e}"), 502
+        return jsonify(error=f"MCP request failed: {e}"), 502
 
     # Wrap the tool output as the “assistant” final
     return jsonify(
