@@ -10,4 +10,4 @@ patches:
 images:
 - name: agent-gateway
   newName: us-central1-docker.pkg.dev/gke-hackathon-469600/bank-of-anthos-repo/agent-gateway
-  newTag: v0.1.2
+  newTag: v0.1.5
