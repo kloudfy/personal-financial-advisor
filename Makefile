@@ -81,4 +81,24 @@ build-agw:
 	docker buildx build --platform linux/amd64,linux/arm64 \
 	-t $(REG)/agent-gateway:$(AGW_TAG) -f src/ai/agent-gateway/Dockerfile . --push
 
-.PHONY: dev-apply dev-status dev-smoke set-images show-images show-pins build-mcp build-agw
+.PHONY: demo demo-clean dev-apply dev-smoke dev-status set-images show-images show-pins build-mcp build-agw e2e-auth-smoke
+
+# --- Authenticated E2E smoke (userservice -> txhistory via mcp/agent-gateway)
+e2e-auth-smoke:
+	@echo "==> E2E auth smoke"
+	@kubectl -n $(NS) delete job/e2e-auth --ignore-not-found >/dev/null 2>&1 || true
+	@kubectl -n $(NS) create job e2e-auth --image=curlimages/curl -- \
+sh -lc 'set -eu; \
+USERSVC="http://userservice.$(NS).svc.cluster.local:8080"; \
+AGW="http://agent-gateway.$(NS).svc.cluster.local:80"; \
+TOKEN=$$(curl -s "$$USERSVC/login?username=testuser&password=bankofanthos" \
+  | sed -E ''s/.*"token":"([^"]+)".*/\1/''); \
+test -n "$$TOKEN"; \
+curl -s -X POST \
+  -H "content-type: application/json" \
+  -H "Authorization: Bearer $$TOKEN" \
+  -d '''{"prompt":"analyze my spend","account_id":"0000000001","window_days":30}''' \
+  $$AGW/chat'
+	@kubectl -n $(NS) wait --for=condition=complete job/e2e-auth --timeout=90s
+	@kubectl -n $(NS) logs job/e2e-auth
+	@kubectl -n $(NS) delete job/e2e-auth --ignore-not-found >/dev/null 2>&1 || true

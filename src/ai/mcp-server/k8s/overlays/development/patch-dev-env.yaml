@@ -15,3 +15,5 @@ spec:
               value: "development"
             - name: MANAGEMENT_METRICS_EXPORT_STACKDRIVER_ENABLED
               value: "false"
+            - name: MOCK_MODE
+              value: "false"

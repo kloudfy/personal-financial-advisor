@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: insight-agent
+spec:
+  template:
+    spec:
+      containers:
+        - name: insight-agent
+          env:
+            - name: ENABLE_TRACING
+              value: "false"
+            - name: LOG_LEVEL
+              value: info
+            - name: USERSERVICE_URI
+              value: http://userservice:8080
+            - name: MCP_SERVER_URI
+              value: http://mcp-server:8080
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 6
