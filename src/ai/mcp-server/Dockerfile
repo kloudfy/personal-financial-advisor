@@ -1,14 +1,15 @@
+# Use an official Python runtime as a parent image
 FROM python:3.11-slim
 
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
-
+# Set the working directory in the container
 WORKDIR /app
 
-COPY src/ai/mcp-server/requirements.txt .
+# Copy the specific requirements file and install dependencies
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY src/ai/mcp-server/main.py .
+# Copy the specific main.py file
+COPY main.py .
 
-EXPOSE 8080
-CMD ["gunicorn", "-b", ":8080", "--workers", "2", "--threads", "4", "main:app"]
+# Run main.py when the container launches
+CMD ["python", "main.py"]

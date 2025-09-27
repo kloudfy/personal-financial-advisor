@@ -5,136 +5,214 @@
 > We extend it with an agent-powered **Personal Financial Advisor** layer (MCP server + monitoring/insight agent)
 > and GKE/Artifact Registry/Cloud SQL/IAM integrations.
 
+## Repository layout (AI additions)
+
+We follow a **Kustomize base + overlays** pattern for each service under `src/ai/*`.
+
+```
+src/
+└── ai
+    ├── agent-gateway
+    │   ├── Dockerfile
+    │   ├── k8s/
+    │   │   ├── base/{deployment.yaml,kustomization.yaml}
+    │   │   └── overlays/
+    │   │       ├── development/{kustomization.yaml,patch-dev.yaml,patch-dev-env.yaml}
+    │   │       └── production/{kustomization.yaml,patch-prod.yaml}
+    │   ├── main.py
+    │   └── requirements.txt
+    ├── insight-agent
+    │   └── k8s/
+    │       ├── base/{deployment.yaml,kustomization.yaml}
+    │       └── overlays/
+    │           ├── development/{kustomization.yaml,patch-dev.yaml,patch-dev-env.yaml}
+    │           └── production/{kustomization.yaml,patch-prod.yaml}
+    └── mcp-server
+        ├── Dockerfile
+        ├── k8s/
+        │   ├── base/{deployment.yaml,kustomization.yaml}
+        │   └── overlays/
+        │       ├── development/{kustomization.yaml,patch-dev.yaml,patch-dev-env.yaml}
+        │       └── production/{kustomization.yaml,patch-prod.yaml}
+        ├── main.py
+        └── requirements.txt
+```
+
+> **Note on legacy directories:** You may also see top-level legacy folders (e.g. `insight-agent/`, `mcp-server/`, `transaction-monitoring-agent/`). These are kept temporarily for reference during the merge; plan to remove them on the `hackathon-submission` branch.
+
 ## What we added/changed (high level)
 
 * **Agents & MCP Server**
 
-  * `src/mcp-server/` – Model Context Protocol server exposing BoA tools/signals to agents.
-  * `src/transaction-monitoring-agent/` – monitoring/advisory flows (A2A).
-  * `src/insight-agent/` – **new** service that summarizes spending and flags anomalies using either:
+  * `src/ai/mcp-server/` – Model Context Protocol server exposing BoA tools/signals to agents.
+  * `src/ai/agent-gateway/` – lightweight gateway that fronts the MCP server for clients.
+  * `src/ai/insight-agent/` – **new** service that summarizes spend/flags anomalies via:
 
     * **Gemini API** (API key) — simple for demos.
     * **Vertex AI (recommended)** — Workload Identity, no keys.
-  * `src/ai/agent-gateway/` – lightweight gateway that fronts the MCP server for clients.
-
-* **Transaction History service fixes (Java / Spring Boot)**
-
-  * Aligned with **Spring Boot 3.5.x + Jakarta 3.1**; resolved JPA/Hibernate proxy clashing.
-  * Optional **quiet mode** in **dev** to disable Stackdriver metrics export.
 
 * **Kubernetes overlays & config hygiene**
 
   * Kustomize overlays (`base`, `overlays/development`, `overlays/production`) following BoA conventions.
-  * Dev overlay sets `MANAGEMENT_METRICS_EXPORT_STACKDRIVER_ENABLED=false` by default.
+  * Dev overlays keep things quiet (e.g., optional metrics export disabled where supported).
 
 * **Security/ops hygiene**
 
-  * Sensitive/testing helpers purged from history and `.gitignore`d.
-  * Use **Workload Identity** (Option A) in prod; no SA keys in git.
-  * Backlog item: migrate any local keys to **Secret Manager**.
+  * Prefer **Workload Identity**; avoid SA keys in git.
+  * Backlog: migrate any local keys to **Secret Manager**.
 
 ---
 
-## Quick start: Insight Agent
+## Prerequisites
 
-Build & deploy **one** of the variants below (Gemini API or Vertex AI).
+* `gcloud` (authenticated to your GCP project)
+* `docker` (Buildx optional)
+* `kubectl` (pointed at your GKE cluster)
+* `kustomize`
+* Artifact Registry repo created (e.g. `bank-of-anthos-repo`)
 
-### A) Gemini API (simple for demos)
-
-```bash
-export GCP_PROJECT=<project-id>
-export AR_REPO=<artifact-registry-repo>
-export REGION=us-central1
-export REG="${REGION}-docker.pkg.dev/${GCP_PROJECT}/${AR_REPO}"
-
-docker build -t ${REG}/insight-agent:gemini -f src/insight-agent/Dockerfile . 
-docker push ${REG}/insight-agent:gemini
-
-kubectl create secret generic gemini-api-key \
-  --from-literal=api-key=<YOUR_GEMINI_API_KEY> \
-  --dry-run=client -o yaml | kubectl apply -f -
-
-sed "s|PROJECT/REPO|${GCP_PROJECT}/${AR_REPO}|g" kubernetes-manifests/insight-agent.yaml | kubectl apply -f -
-kubectl get pods -l app=insight-agent
-```
-
-### B) Vertex AI (recommended)
+Set common environment variables (or use `Makefile` defaults):
 
 ```bash
-export GCP_PROJECT=<project-id>
-export AR_REPO=<artifact-registry-repo>
+export PROJECT=<gcp-project-id>
 export REGION=us-central1
-export REG="${REGION}-docker.pkg.dev/${GCP_PROJECT}/${AR_REPO}"
-
-gcloud services enable aiplatform.googleapis.com --project=${GCP_PROJECT}
-
-docker build -t ${REG}/insight-agent:vertex -f src/insight-agent/Dockerfile.vertex . 
-docker push ${REG}/insight-agent:vertex
-
-kubectl create configmap environment-config \
-  --from-literal=GOOGLE_CLOUD_PROJECT=${GCP_PROJECT} \
-  --dry-run=client -o yaml | kubectl apply -f -
-
-sed "s|PROJECT/REPO|${GCP_PROJECT}/${AR_REPO}|g" kubernetes-manifests/insight-agent-vertex.yaml | kubectl apply -f -
-kubectl get pods -l app=insight-agent
+export REPO=bank-of-anthos-repo
+export REG="${REGION}-docker.pkg.dev/${PROJECT}/${REPO}"
 ```
 
 ---
 
----
+## 🚀 One-command Demo
 
-## 🚀 Deploy and Test (Easy Mode)
-
-> **Prereqs:** `make`, `kustomize`, and `kubectl` installed; `kubectl` is configured to your cluster.
-
-The included `Makefile` provides a simple, one-command workflow for deploying the services and running tests.
-
-### Run the Demo
-
-This is the easiest way to get started. This command will deploy all necessary resources and run a smoke test to verify the system is working.
+The `Makefile` provides a simple, one-command workflow that applies dev overlays and runs smoke tests.
 
 ```bash
+make            # same as 'make demo'
+# or
 make demo
 ```
-*or simply:*
-```bash
-make
-```
 
-### Clean Up
-
-After you are done, you can tear down all the demo resources with a single command:
+Clean up the demo resources:
 
 ```bash
 make demo-clean
 ```
 
-### Advanced: Overriding Variables
-
-The `Makefile` uses default values for the GCP Project, region, and image tags. You can override these from the command line if you are deploying your own custom-built images.
+Check rollout status and run smoke only:
 
 ```bash
-# Example of building, pushing, and deploying a custom image
-make build-agw TAG=v0.3.0 PROJECT=my-project REPO=my-repo
-make set-image TAG=v0.3.0 PROJECT=my-project REPO=my-repo
+make dev-apply
+make dev-status
 make dev-smoke
 ```
 
 ---
 
-## 🌐 Production Overlay
+## 🔐 Authenticated E2E Smoke (userservice → agent-gateway → mcp → transactionhistory)
 
-The `overlays/production` Kustomize configs add:
+We include a job-based smoke test that fetches a JWT from `userservice` and calls `agent-gateway`:
 
-* **Workload Identity annotations** (pods run as GCP IAM service accounts, no keys in secrets).
+```bash
+make e2e-auth-smoke
+```
+
+> Requires the BoA demo user and the `jwt-key` secret (per upstream).
+> If you’ve ever deleted `jwt-key`, recreate it via the upstream `extras/jwt/jwt-secret.yaml`.
+
+---
+
+## 📦 Build & Deploy: insight-agent (dev overlay)
+
+We’ve added convenience targets to streamline **build → push → apply → watch logs** for `insight-agent`.
+
+### Configure Artifact Registry auth (once)
+
+```bash
+make ar-login
+```
+
+### Option A: Gemini API variant (simple for demos)
+
+1. Build, push, deploy, and tail logs:
+
+```bash
+make deploy-insight-agent-dev INS_TAG=gemini
+```
+
+2. If your image reads a `GEMINI_API_KEY` from a Secret, create it (example):
+
+```bash
+kubectl create secret generic gemini-api-key \
+  --from-literal=api-key=<YOUR_GEMINI_API_KEY> \
+  --dry-run=client -o yaml | kubectl apply -f -
+```
+
+### Option B: Vertex AI variant (recommended)
+
+Ensure the Vertex API is enabled and that your GKE workload has Workload Identity configured to call Vertex:
+
+```bash
+gcloud services enable aiplatform.googleapis.com --project=${PROJECT}
+make deploy-insight-agent-dev INS_TAG=vertex
+```
+
+> The **production** overlay can add Workload Identity annotations and stricter runtime policies.
+
+### Other handy targets
+
+```bash
+# Build/push only
+make insight-build INS_TAG=gemini
+make insight-push  INS_TAG=gemini
+
+# Apply manifests only (no build/push)
+make insight-apply
+
+# Rollout status and logs
+make insight-status
+make insight-logs
+```
+
+---
+
+## 🧱 Dev overlays for mcp-server and agent-gateway
+
+To apply both dev overlays and force an agent-gateway restart to pick up ConfigMap changes:
+
+```bash
+make dev-apply
+make dev-status
+```
+
+Images pinned in overlays can be updated via:
+
+```bash
+make set-images MCP_TAG=v0.1.0 AGW_TAG=v0.1.2 PROJECT=${PROJECT} REPO=${REPO}
+make show-pins
+```
+
+Show images currently running:
+
+```bash
+make show-images
+```
+
+---
+
+## 🌐 Production overlay
+
+The `overlays/production` Kustomize configs add, where applicable:
+
+* **Workload Identity** annotations (pods run as GCP IAM service accounts; no keys in secrets).
 * Optional **Ingress/IAP** for exposing agent-gateway externally with authentication.
 * “Quiet mode” disabled — production metrics and logging enabled.
 
-To deploy:
+Deploy (per service):
 
 ```bash
-kustomize build src/ai/mcp-server/k8s/overlays/production | kubectl apply -f - 
+kustomize build src/ai/mcp-server/k8s/overlays/production | kubectl apply -f -
 kustomize build src/ai/agent-gateway/k8s/overlays/production | kubectl apply -f -
+kustomize build src/ai/insight-agent/k8s/overlays/production | kubectl apply -f -
 ```
 
 ---
@@ -152,11 +230,11 @@ kustomize build src/ai/agent-gateway/k8s/overlays/production | kubectl apply -f 
 
 ## Lessons learned (short)
 
-* **Immutable Kubernetes Selectors:** Be cautious when using Kustomize's `commonLabels`, as they can attempt to change a Deployment's `spec.selector`, which is an immutable field. It's safer to use patches to apply labels only to the pod template (`spec.template.metadata.labels`).
-* **`ConfigMap` Updates Require Pod Restarts:** Changing a `ConfigMap` does not automatically trigger a rollout of the pods that use it. You must force a restart (e.g., `kubectl rollout restart deploy/...`) to ensure the pods pick up the new configuration.
-* **Service Endpoint Stabilization:** Even after a deployment rollout reports success, there can be a brief delay before the Kubernetes Service is fully routing traffic to the new pods. Test scripts should include a short `sleep` or a retry loop to account for this.
-* **Prefer `kubectl create job` for Tests:** For running non-interactive tasks in temporary pods (like smoke tests), `kubectl run` can have tricky flag combinations (`--rm`, `-i`). The most robust pattern is to use `kubectl create job`, `kubectl wait`, and then `kubectl logs` to avoid race conditions and warnings.
-* **Workload Identity > Service Account Keys:** Always prefer Workload Identity for authenticating to Google Cloud services from GKE to avoid managing and securing service account keys.
+* **Immutable Kubernetes Selectors:** Be cautious when using Kustomize’s `commonLabels`, as they can attempt to change a Deployment’s `spec.selector`, which is an immutable field. Prefer patches to apply labels only to the pod template (`spec.template.metadata.labels`).
+* **`ConfigMap` updates require pod restarts:** Changing a `ConfigMap` doesn’t trigger a rollout. Use `kubectl rollout restart deploy/...`.
+* **Service endpoint stabilization:** After a rollout shows “success,” allow a brief delay before testing; add a small `sleep` or retry loop.
+* **Prefer `kubectl create job` for tests:** For short-lived non-interactive checks, `Job + wait + logs` avoids attach races and warnings.
+* **Workload Identity > SA keys:** Prefer WI for GKE to avoid managing service account keys.
 
 ---
 

@@ -1,3 +1,2 @@
-flask>=3.0.0,<4
-gunicorn>=21.2.0,<22
-requests>=2.31.0,<3
+Flask
+requests

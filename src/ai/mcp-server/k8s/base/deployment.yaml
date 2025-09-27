@@ -4,44 +4,23 @@ metadata:
   name: mcp-server
   labels:
     app: mcp-server
-    application: bank-of-anthos
-    tier: backend
-    team: platform
+    application: personal-financial-advisor
+    tier: ai
 spec:
-  replicas: 1
   selector:
     matchLabels:
       app: mcp-server
+      application: personal-financial-advisor
+      tier: ai
   template:
     metadata:
       labels:
         app: mcp-server
-        application: bank-of-anthos
+        application: personal-financial-advisor
+        tier: ai
     spec:
-      serviceAccountName: mcp-server
       containers:
-        - name: mcp-server
-          image: mcp-server:latest # overridden by overlays
-          ports:
-            - containerPort: 8080
-          env:
-            - name: MANAGEMENT_METRICS_EXPORT_STACKDRIVER_ENABLED
-              value: "false"
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: mcp-server
-  labels:
-    app: mcp-server
-spec:
-  selector:
-    app: mcp-server
-  ports:
-    - port: 80
-      targetPort: 8080
----
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: mcp-server
+      - name: mcp-server
+        image: mcp-server:dev # <-- overlaid per env
+        ports:
+        - containerPort: 8080

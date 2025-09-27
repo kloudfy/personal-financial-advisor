@@ -4,9 +4,8 @@ metadata:
   name: mcp-server
 spec:
   template:
+    metadata:
+      annotations:
+        proxy.istio.io/config: '{ "holdApplicationUntilProxyStarts": true }'
     spec:
-      containers:
-        - name: mcp-server
-          env:
-            - name: MOCK_MODE
-              value: "true"
+      serviceAccountName: bank-of-anthos

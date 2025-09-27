@@ -1,8 +1,8 @@
 FROM python:3.11-slim
 WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
-COPY src/insight-agent/requirements-vertex.txt ./requirements.txt
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-COPY src/insight-agent/main_vertex.py ./main.py
+COPY main.py ./
 EXPOSE 8080
 CMD ["gunicorn", "-b", ":8080", "main:app"]
