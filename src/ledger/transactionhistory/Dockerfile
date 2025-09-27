@@ -1,13 +1,13 @@
 FROM maven:3.9.8-eclipse-temurin-21 AS builder
 WORKDIR /app
 COPY src/ledger/transactionhistory/pom.xml .
-RUN mvn -q dependency:go-offline
+RUN mvn dependency:go-offline
 COPY src/ledger/transactionhistory/src ./src
-RUN mvn -q -DskipTests clean package
+RUN mvn package -DskipTests
 
-FROM gcr.io/distroless/java21:nonroot
+FROM eclipse-temurin:21-jre
 WORKDIR /app
-COPY --from=builder /app/target/transactionhistory-*.jar /app/app.jar
+COPY --from=builder /app/target/transactionhistory-1.0.jar .
+COPY src/ledger/transactionhistory/src/main/resources .
 EXPOSE 8080
-USER nonroot
-ENTRYPOINT ["java","-jar","/app/app.jar"]
+CMD ["java", "-jar", "transactionhistory-1.0.jar"]

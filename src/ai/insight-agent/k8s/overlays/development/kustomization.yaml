@@ -1,0 +1,16 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: default
+
+resources:
+  - ../../base
+
+images:
+  - name: insight-agent
+    newName: us-central1-docker.pkg.dev/gke-hackathon-469600/bank-of-anthos-repo/insight-agent
+    newTag: gemini
+
+patches:
+  - path: patch-dev-env.yaml
+  - path: patch-dev.yaml

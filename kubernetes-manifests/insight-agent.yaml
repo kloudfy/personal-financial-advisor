@@ -47,7 +47,7 @@ spec:
       serviceAccountName: bank-of-anthos
       containers:
         - name: insight-agent
-          image: us-central1-docker.pkg.dev/PROJECT/REPO/insight-agent:gemini
+          image: us-central1-docker.pkg.dev/gke-hackathon-469600/bank-of-anthos-repo/insight-agent:gemini
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080

@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: transaction-monitoring-agent
+spec:
+  selector:
+    matchLabels:
+      app: transaction-monitoring-agent
+  template:
+    metadata:
+      labels:
+        app: transaction-monitoring-agent
+    spec:
+      containers:
+      - name: transaction-monitoring-agent
+        image: us-central1-docker.pkg.dev/gke-hackathon-469600/bank-of-anthos-repo/transaction-monitoring-agent:v0.1.4
+        env:
+        - name: GEMINI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: gemini-api-key
+              key: api-key
