@@ -17,6 +17,7 @@ kind: ConfigMap
 metadata:
   name: environment-config
 data:
+  GOOGLE_CLOUD_PROJECT: "gke-hackathon-469600"
   LOCAL_ROUTING_NUM: "883745000"
   PUB_KEY_PATH: "/tmp/.ssh/publickey"
 ---

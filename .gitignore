@@ -211,3 +211,28 @@ venv-*
 
 # go for ci
 go/
+# Local only (do not commit)
+sa-key.json
+*.key
+*.key.pub
+
+# Local-only / sensitive / test helpers
+chat_history.txt
+decode_jwt.py
+encode_jwt.py
+get_token.py
+iam-policy.json
+verify_jwt.py
+
+
+# Local-only / sensitive
+/chat_history.txt
+/decode_jwt.py
+/encode_jwt.py
+/get_token.py
+/verify_jwt.py
+/iam-policy.json
+/sa-key.json
+*.key
+*.key.pub
+

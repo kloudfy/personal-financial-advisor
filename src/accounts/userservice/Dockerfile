@@ -18,7 +18,8 @@ FROM python:3.12.6-slim@sha256:ad48727987b259854d52241fac3bc633574364867b8e20aec
 FROM base as builder
 
 # Install dependencies.
-COPY requirements.txt .
+WORKDIR /app
+COPY src/accounts/userservice/requirements.txt .
 RUN pip install --prefix="/install" -r requirements.txt
 
 FROM base
@@ -35,7 +36,7 @@ ENV PYTHONUNBUFFERED=0
 ENV LOG_LEVEL info
 
 # Add application code.
-COPY . .
+COPY src/accounts/userservice/ .
 
 # Ensure files are readable for non-root users
 RUN chmod a+r *
