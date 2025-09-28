@@ -108,7 +108,9 @@ vertex-enable: ## Enable Vertex AI API
 # Also grants minimal Vertex permissions.
 vertex-wi-bootstrap: ## Bootstrap Workload Identity for insight-agent (dev)
 	@[ -n "${PROJECT}" ] || (echo "PROJECT is required"; exit 1)
-	gcloud iam service-accounts create insight-agent --project ${PROJECT} --display-name "Insight Agent (Vertex)"
+	gcloud iam service-accounts create insight-agent --project ${PROJECT} --display-name "Insight Agent (Vertex)" || true
+	@echo "Waiting 5 seconds for service account to propagate..."
+	sleep 5
 	gcloud projects add-iam-policy-binding ${PROJECT} \
 	  --member="serviceAccount:insight-agent@${PROJECT}.iam.gserviceaccount.com" \
 	  --role="roles/aiplatform.user"

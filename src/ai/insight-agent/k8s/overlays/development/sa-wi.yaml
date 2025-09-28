@@ -7,4 +7,4 @@ metadata:
     # Patched by Makefile 'vertex-wi-bootstrap' step to your real GSA.
     # Example value:
     # iam.gke.io/gcp-service-account: insight-agent @${PROJECT}.iam.gserviceaccount.com
-    iam.gke.io/gcp-service-account: REPLACE_ME_INSIGHT_AGENT_GSA
+    iam.gke.io/gcp-service-account: insight-agent@gke-hackathon-469600.iam.gserviceaccount.com
