@@ -44,7 +44,9 @@ run_curl_job() {
   kubectl -n "$ns" wait --for=condition=complete "job/$name" --timeout=90s
 
   # print logs
-  kubectl -n "$ns" logs "$name"
+  local pod_name=$(kubectl get pods -n "$ns" -l job-name="$name" -o jsonpath='{.items[0].metadata.name}')
+  sleep 1 # Give the system a moment to process job completion before fetching logs
+  kubectl -n "$ns" logs "$pod_name"
 
   # delete job
   kubectl -n "$ns" delete job "$name" --wait=false >/dev/null 2>&1
@@ -68,13 +70,28 @@ if [ -z "$TOKEN" ]; then
   exit 1
 fi
 JSON_PAYLOAD='{"prompt":"analyze my spend","account_id":"1011226111","window_days":30}'
-AGW_URL="http://agent-gateway.default.svc.cluster.local:8080/chat"
+AGW_URL="http://agent-gateway.default.svc.cluster.local:80/chat"
 
 # Retry the AGW call up to 3 times (covers transient MCP 502 on cold start)
-if ! bash -lc 'curl_agw_with_retry "$AGW_URL" "$JSON_PAYLOAD" "$TOKEN"'; then
-  echo "AGW call failed after retries." >&2
-  exit 2
-fi
+attempt=1
+while :; do
+  echo "==> Attempt ${attempt}: agent-gateway /chat"
+  if curl -sS -H "Authorization: Bearer ${TOKEN}" \
+        -H "Content-Type: application/json" \
+        -X POST -d "${JSON_PAYLOAD}" "${AGW_URL}"; then
+    echo "AGW call succeeded."
+    break
+  fi
+  if [ ${attempt} -ge 3 ]; then
+    echo "AGW call failed after retries." >&2
+    exit 2
+  fi
+  if [ ${attempt} -eq 1 ]; then sleep 2s
+  elif [ ${attempt} -eq 2 ]; then sleep 5s
+  else sleep 1s
+  fi
+  attempt=$((attempt+1))
+done
 EOF
 )
 
