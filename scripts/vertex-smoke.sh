@@ -25,6 +25,10 @@ PY
 
 echo "==> Creating one-off Job '${JOB}' to verify Vertex AI access via Workload Identity..."
 kubectl -n "${NS}" delete job "${JOB}" --ignore-not-found >/dev/null 2>&1 || true
+kubectl -n "${NS}" delete configmap vertex-smoke-src --ignore-not-found >/dev/null 2>&1 || true
+
+kubectl -n "${NS}" create configmap vertex-smoke-src --from-file=/tmp/vertex_smoke.py
+
 kubectl -n "${NS}" apply -f - <<EOF
 apiVersion: batch/v1
 kind: Job
@@ -60,18 +64,9 @@ spec:
           mountPath: /work
       volumes:
       - name: work
-        projected:
-          sources:
-          - secret:
-              name: default-token # placeholder; projected volume needs a source
-              optional: true
-          - configMap:
-              name: environment-config
-              optional: true
+        configMap:
+          name: vertex-smoke-src
 EOF
-
-kubectl -n "${NS}" create configmap vertex-smoke-src --from-file=/tmp/vertex_smoke.py --dry-run=client -o yaml | kubectl apply -f -
-kubectl -n "${NS}" set volume job/${JOB} --add --name=smoke-src --type=configmap --configmap-name=vertex-smoke-src --mount-path=/work --sub-path=vertex_smoke.py
 
 kubectl -n "${NS}" wait --for=condition=complete --timeout=180s job/${JOB}
 echo "==> Logs:"
