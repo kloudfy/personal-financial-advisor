@@ -95,3 +95,48 @@ e2e-auth-smoke:
 ## (cold starts, DNS/cache propagation) and details on the port fix (80, not 8080).
 ## If you copy this logic elsewhere, keep the retry loop + short sleep, or expect
 ## occasional 5xx during rapid rollouts.
+
+###############################################################################
+# Vertex AI (Workload Identity) – insight-agent (dev)
+###############################################################################
+.PHONY: vertex-enable vertex-wi-bootstrap deploy-insight-agent-vertex vertex-smoke
+
+vertex-enable: ## Enable Vertex AI API
+	gcloud services enable aiplatform.googleapis.com --project ${PROJECT}
+
+# Creates a GSA and binds it for WI to the KSA `insight-agent` in default NS.
+# Also grants minimal Vertex permissions.
+vertex-wi-bootstrap: ## Bootstrap Workload Identity for insight-agent (dev)
+	@[ -n "${PROJECT}" ] || (echo "PROJECT is required"; exit 1)
+	gcloud iam service-accounts create insight-agent --project ${PROJECT} --display-name "Insight Agent (Vertex)"
+	gcloud projects add-iam-policy-binding ${PROJECT} \
+	  --member="serviceAccount:insight-agent@${PROJECT}.iam.gserviceaccount.com" \
+	  --role="roles/aiplatform.user"
+	# Allow KSA to impersonate GSA via WI
+	gcloud iam service-accounts add-iam-policy-binding \
+	  insight-agent@${PROJECT}.iam.gserviceaccount.com \
+	  --role="roles/iam.workloadIdentityUser" \
+	  --member="serviceAccount:${PROJECT}.svc.id.goog[default/insight-agent]"
+	# Patch annotation into the KSA manifest & apply overlay (dev)
+	sed -i.bak "s#REPLACE_ME_INSIGHT_AGENT_GSA#insight-agent@${PROJECT}.iam.gserviceaccount.com#g" src/ai/insight-agent/k8s/overlays/development/sa-wi.yaml
+	kustomize build src/ai/insight-agent/k8s/overlays/development | kubectl apply -f -
+	kubectl -n default rollout status deploy/insight-agent
+
+deploy-insight-agent-vertex: ## Build/push (if needed) and deploy insight-agent in Vertex mode
+	@[ -n "${PROJECT}" ] || (echo "PROJECT is required"; exit 1)
+	@[ -n "${REPO}" ] || (echo "REPO is required"; exit 1)
+	@[ -n "${REG}" ] || (echo "REG is required"; exit 1)
+	@[ -n "${INS_TAG}" ] || (echo "INS_TAG=<tag> is required, e.g. INS_TAG=vertex"; exit 1)
+	docker buildx build --platform linux/amd64 \
+	  -t ${REG}/insight-agent:${INS_TAG} \
+	  -f src/ai/insight-agent/Dockerfile \
+	  src/ai/insight-agent --push
+	( cd src/ai/insight-agent/k8s/overlays/development && \
+	  kustomize edit set image insight-agent=${REG}/insight-agent:${INS_TAG} )
+	kustomize build src/ai/insight-agent/k8s/overlays/development | kubectl apply -f -
+	kubectl -n default rollout restart deploy/insight-agent
+	kubectl -n default rollout status  deploy/insight-agent
+
+vertex-smoke: ## One-off pod calls Vertex Gemini with WI (expects WI bootstrap done)
+	chmod +x scripts/vertex-smoke.sh
+	./scripts/vertex-smoke.sh

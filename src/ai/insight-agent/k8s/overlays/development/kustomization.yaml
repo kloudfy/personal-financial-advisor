@@ -5,6 +5,7 @@ namespace: default
 
 resources:
   - ../../base
+  - sa-wi.yaml
 
 images:
   - name: insight-agent
@@ -14,3 +15,10 @@ images:
 patches:
   - path: patch-dev-env.yaml
   - path: patch-dev.yaml
+  - target:
+      kind: Deployment
+      name: insight-agent
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/serviceAccountName
+        value: insight-agent
