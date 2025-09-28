@@ -87,3 +87,11 @@ build-agw:
 e2e-auth-smoke:
 	@echo "==> Running E2E authenticated smoke tests..."
 	NS=$(NS) ./scripts/e2e-smoke.sh
+
+## Note:
+## e2e-smoke.sh includes built-in retry logic for the /chat call to agent-gateway (port 80).
+## This improves stability under cold starts and avoids transient 502 errors.
+## See scripts/e2e-smoke.sh for inline comments explaining why retries are necessary
+## (cold starts, DNS/cache propagation) and details on the port fix (80, not 8080).
+## If you copy this logic elsewhere, keep the retry loop + short sleep, or expect
+## occasional 5xx during rapid rollouts.

@@ -7,59 +7,19 @@
 
 ---
 
-## 🔎 Status & recent changes (stabilization)
-
-This fork is **fully functional** end-to-end (UI + APIs). Highlights from recent fixes:
-
-- **Reliable smoke tests**
-  - New `scripts/e2e-smoke.sh` authenticated E2E test.
-  - Makefile simplified to call the script (less quoting pain).
-- **Agent path + auth**
-  - `agent-gateway` now calls `mcp-server` via `GET /transactions/<account_id>` and **forwards the JWT**.
-  - E2E payloads use the correct `account_id` to satisfy `transactionhistory` authorization.
-- **Workload Identity**
-  - Enabled for `transactionhistory` (metrics/tracing perms), eliminating crash loops from IAM errors.
-- **Startup resilience**
-  - `transaction-monitoring-agent` waits for `userservice` readiness before starting.
-- **Frontend alignment**
-  - Unified `service-api-config` values (e.g., `BALANCES_API_ADDR=balancereader:8080`), removed `http://` prefixes where the app builds full URLs.
-- **Ledgerwriter stability**
-  - Explicit `BALANCES_API_ADDR` env mapping in `kubernetes-manifests/ledger-writer.yaml` fixes `CreateContainerConfigError` (missing key).
-- **UI verified**
-  - Login, balance, history, **deposits** and **payments** succeed; balance updates live.
-
----
-
 ## Quick Start (Dev)
 
-> Assumes: GKE cluster, `kubectl` context set, and Artifact Registry repo exists.
-
-1) Create the JWT secret required by the upstream frontend:
 ```bash
-kubectl apply -f extras/jwt/jwt-secret.yaml
-````
+# deploy dev overlays and run smokes
+make demo
 
-2) Apply base manifests (Bank of Anthos) + this repo’s changes:
-
-```bash
-kubectl apply -f kubernetes-manifests
-```
-
-3) Run the dev overlay and smokes (agents + MCP + gateway):
-
-```bash
-make dev-apply
-make dev-status
+# or run only the smokes after you’ve deployed
 make dev-smoke
-make e2e-auth-smoke
+make e2e-auth-smoke   # userservice → agent-gateway → mcp → transactionhistory
 ```
 
-4) Visit the UI:
-
-* External IP: `kubectl get svc frontend`
-* Login (demo user): **testuser / bankofanthos**
-
-If a smoke occasionally returns a `502` (MCP cold start), simply re-run; we also ship a small retry in `e2e-smoke.sh`.
+The authenticated smoke uses a **retry loop** for the AGW `/chat` call (port **80**)
+to absorb brief cold-start/propagation 5xx.
 
 ---
 
@@ -82,18 +42,18 @@ src/
     ├── insight-agent
     │   └── k8s/
     │       ├── base/{deployment.yaml,kustomization.yaml}
-    │       │   └── overlays/
-    │       │       ├── development/{kustomization.yaml,patch-dev.yaml,patch-dev-env.yaml}
-    │       │       └── production/{kustomization.yaml,patch-prod.yaml}
-    │       └── mcp-server
-    │           ├── Dockerfile
-    │           ├── k8s/
-    │           │   ├── base/{deployment.yaml,kustomization.yaml}
-    │           │   └── overlays/
-    │           │       ├── development/{kustomization.yaml,patch-dev.yaml,patch-dev-env.yaml}
-    │           │       └── production/{kustomization.yaml,patch-prod.yaml}
-    │           ├── main.py
-    │           └── requirements.txt
+    │       └── overlays/
+    │           ├── development/{kustomization.yaml,patch-dev.yaml,patch-dev-env.yaml}
+    │           └── production/{kustomization.yaml,patch-prod.yaml}
+    └── mcp-server
+        ├── Dockerfile
+        ├── k8s/
+        │   ├── base/{deployment.yaml,kustomization.yaml}
+        │   └── overlays/
+        │       ├── development/{kustomization.yaml,patch-dev.yaml,patch-dev-env.yaml}
+        │       └── production/{kustomization.yaml,patch-prod.yaml}
+        ├── main.py
+        └── requirements.txt
 ```
 
 > **Note on legacy directories:** You may also see top-level legacy folders (e.g. `insight-agent/`, `mcp-server/`, `transaction-monitoring-agent/`). These are kept temporarily for reference during the merge; plan to remove them on the `hackathon-submission` branch.
@@ -103,21 +63,17 @@ src/
 ## What we added/changed (high level)
 
 * **Agents & MCP Server**
-
   * `src/ai/mcp-server/` – Model Context Protocol server exposing BoA tools/signals to agents.
   * `src/ai/agent-gateway/` – lightweight gateway that fronts the MCP server for clients.
   * `src/ai/insight-agent/` – **new** service that summarizes spend/flags anomalies via:
-
     * **Gemini API** (API key) — simple for demos.
     * **Vertex AI (recommended)** — Workload Identity, no keys.
 
 * **Kubernetes overlays & config hygiene**
-
   * Kustomize overlays (`base`, `overlays/development`, `overlays/production`) following BoA conventions.
   * Dev overlays keep things quiet (e.g., optional metrics export disabled where supported).
 
 * **Security/ops hygiene**
-
   * Prefer **Workload Identity**; avoid SA keys in git.
   * Backlog: migrate any local keys to **Secret Manager**.
 
@@ -178,48 +134,6 @@ make e2e-auth-smoke
 
 > Requires the BoA demo user and the `jwt-key` secret (per upstream).
 > If you’ve ever deleted `jwt-key`, recreate it via the upstream `extras/jwt/jwt-secret.yaml`.
-
----
-
-## 📦 Releasing new images (Tags **or** Digests)
-
-Two safe ways to roll a new image to the dev overlay.
-
-### Option A — Build & roll a fresh **tag**
-
-```bash
-# Build & push (example: v0.1.3)
-FRONTEND_TAG=v0.1.3
-docker buildx build --platform linux/amd64 \
-  -t "${REG}/frontend:${FRONTEND_TAG}" \
-  -f src/frontend/Dockerfile src/frontend --push
-
-# Pin in the dev overlay and apply
-( cd src/frontend/k8s/overlays/development && \
-  kustomize edit set image frontend=${REG}/frontend:${FRONTEND_TAG} )
-kustomize build src/frontend/k8s/overlays/development | kubectl apply -f - 
-kubectl rollout status deploy/frontend
-```
-
-### Option B — Lock to an **immutable digest**
-
-```bash
-# Get the digest you want to deploy
-DIGEST=$(gcloud artifacts tags list \
-  --location=${REGION} --repository=${REPO} --package=frontend \
-  --format='value(version)' --filter='name ~ v0.1.3' | head -n1)
-
-# Set image to use @sha256 digest explicitly
-( cd src/frontend/k8s/overlays/development && \
-  kustomize edit set image frontend=${REG}/frontend @${DIGEST} )
-kustomize build src/frontend/k8s/overlays/development | kubectl apply -f - 
-kubectl rollout status deploy/frontend
-```
-
-**When to use which?**
-
-* **Tag** during rapid iteration.
-* **Digest** when you need perfect reproducibility (no tag drift).
 
 ---
 
@@ -312,10 +226,56 @@ The `overlays/production` Kustomize configs add, where applicable:
 Deploy (per service):
 
 ```bash
-kustomize build src/ai/mcp-server/k8s/overlays/production | kubectl apply -f - 
-kustomize build src/ai/agent-gateway/k8s/overlays/production | kubectl apply -f - 
-kustomize build src/ai/insight-agent/k8s/overlays/production | kubectl apply -f - 
+kustomize build src/ai/mcp-server/k8s/overlays/production | kubectl apply -f -
+kustomize build src/ai/agent-gateway/k8s/overlays/production | kubectl apply -f -
+kustomize build src/ai/insight-agent/k8s/overlays/production | kubectl apply -f -
 ```
+
+---
+
+## Releasing New Images (dev overlay)
+
+We pin images per overlay. Typical flow:
+
+```bash
+# 1) Build & push a fresh tag (example: frontend v0.1.3)
+export PROJECT=<gcp-project-id>
+export REGION=us-central1
+export REPO=bank-of-anthos-repo
+export REG="${REGION}-docker.pkg.dev/${PROJECT}/${REPO}"
+export FRONTEND_TAG=v0.1.3
+
+docker buildx build --platform linux/amd64 \
+  -t ${REG}/frontend:${FRONTEND_TAG} \
+  -f src/frontend/Dockerfile src/frontend --push
+
+# 2) Pin the tag in the dev overlay
+(cd src/frontend/k8s/overlays/development && \
+  kustomize edit set image frontend=${REG}/frontend:${FRONTEND_TAG})
+
+# 3) Apply + restart + verify
+kustomize build src/frontend/k8s/overlays/development | kubectl apply -f -
+kubectl -n default rollout restart deploy/frontend
+kubectl -n default rollout status  deploy/frontend
+make dev-smoke
+```
+
+To avoid tag ambiguity in critical paths, you can also lock to a **digest**:
+use `frontend @sha256:<digest>` instead of a tag.
+
+---
+
+## Project Status Update: Application Stabilization and Bug Fixes
+
+The app is fully functional; all smokes pass. Highlights:
+
+* **Reliable smokes:** `scripts/e2e-smoke.sh` with authenticated flow + retry loop.
+* **MCP ↔ AGW:** `agent-gateway` now calls `GET /transactions/<acct>` and forwards JWTs.
+* **Auth path fixed:** Smokes fetch valid JWTs and use the correct account id for authorization.
+* **transactionhistory WI:** Workload Identity + Monitoring/Trace roles; pod stable.
+* **TMA boot:** `transaction-monitoring-agent` waits on userservice readiness.
+* **Frontend config:** Clean service addresses (`servicename:port`) and var names aligned.
+* **Ledgerwriter fix:** Env mapping for `BALANCES_API_ADDR` from `service-api-config`.
 
 ---
 
@@ -337,6 +297,7 @@ kustomize build src/ai/insight-agent/k8s/overlays/production | kubectl apply -f 
 * **Service endpoint stabilization:** After a rollout shows “success,” allow a brief delay before testing; add a small `sleep` or retry loop.
 * **Prefer `kubectl create job` for tests:** For short-lived non-interactive checks, `Job + wait + logs` avoids attach races and warnings.
 * **Workload Identity > SA keys:** Prefer WI for GKE to avoid managing service account keys.
+* **Built-in retries for smokes:** Transient 5xx (cold starts, DNS/cache propagation) are normal right after rollouts. The smoke’s retry wrapper (and using **port 80** for AGW) removes flakes without masking real issues.
 
 ---
 
