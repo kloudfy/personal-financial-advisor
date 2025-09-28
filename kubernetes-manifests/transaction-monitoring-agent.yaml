@@ -20,3 +20,15 @@ spec:
             secretKeyRef:
               name: gemini-api-key
               key: api-key
+        command:
+        - "/bin/sh"
+        - "-c"
+        - |
+          set -x
+          echo "Waiting for userservice to be ready..."
+          apk add --no-cache curl
+          while ! curl -s "http://userservice.default.svc.cluster.local:8080/ready"; do
+            sleep 2
+          done
+          echo "Userservice is ready. Starting agent."
+          exec python main.py

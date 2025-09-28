@@ -44,9 +44,14 @@ echo "==> /chat (sample analysis)"
 # Note 'EOF' is quoted to prevent local variable expansion inside the block.
 chat_command=$(cat <<'EOF'
 set -eu
-TOKEN=$(curl -s "http://userservice.default.svc.cluster.local:8080/login?username=testuser&password=bankofanthos" | sed -E 's/.*"token":"([^"]+)".*/\1/')
+# Temporarily remove -s from curl and remove the sed pipe to see raw output
+RAW_OUTPUT=$(curl -v "http://userservice.default.svc.cluster.local:8080/login?username=testuser&password=bankofanthos")
+echo "--- RAW OUTPUT FROM CURL ---"
+echo "$RAW_OUTPUT"
+echo "--- END RAW OUTPUT ---"
+TOKEN=$(echo "$RAW_OUTPUT" | sed -E 's/.*"token":"([^"]+)".*/\\1/')
 if [ -z "$TOKEN" ]; then
-  echo "Failed to get token" >&2
+  echo "Failed to get token from raw output." >&2
   exit 1
 fi
 JSON_PAYLOAD='{"prompt":"analyze my spend","account_id":"1011226111","window_days":30}'
