@@ -1,5 +1,29 @@
 #!/usr/bin/env bash
+#
+# e2e-smoke.sh — authenticated end-to-end smoke with lightweight retries
+# - Gets a JWT from userservice
+# - Calls agent-gateway /chat with the JWT
+# - Retries the AGW call up to 3 times (handles brief MCP cold starts)
+
 set -euo pipefail
+
+# small helper: retry with backoff (2s, 5s, 10s)
+curl_agw_with_retry() {
+  local url="$1"
+  local json_payload="$2"
+  local token="$3"
+  local attempt=1
+  local backoffs=(2 5 10)
+  while :; do
+    echo "==> Attempt ${attempt}: agent-gateway /chat"
+    if curl -sS -H "Authorization: Bearer ${token}" \
+          -H "Content-Type: application/json" \
+          -X POST -d "${json_payload}" "${url}"; then return 0; fi
+    [[ ${attempt} -ge 3 ]] && return 1
+    sleep "${backoffs[$((attempt-1))]}"
+    attempt=$((attempt+1))
+  done
+}
 
 ns="${NS:-default}"
 ag_svc="agent-gateway.${ns}.svc.cluster.local"
@@ -20,7 +44,7 @@ run_curl_job() {
   kubectl -n "$ns" wait --for=condition=complete "job/$name" --timeout=90s
 
   # print logs
-  kubectl -n "$ns" logs "job/$name"
+  kubectl -n "$ns" logs "$name"
 
   # delete job
   kubectl -n "$ns" delete job "$name" --wait=false >/dev/null 2>&1
@@ -33,18 +57,30 @@ echo "==> Running E2E authenticated smoke test..."
 # Note 'EOF' is quoted to prevent local variable expansion inside the block.
 chat_command=$(cat <<'EOF'
 set -eu
-TOKEN=$(curl -s "http://userservice.default.svc.cluster.local:8080/login?username=testuser&password=bankofanthos" | sed -E 's/.*"token":"([^"]+)".*/\1/')
+# Keep verbose token fetch for troubleshooting
+RAW_OUTPUT=$(curl -v "http://userservice.default.svc.cluster.local:8080/login?username=testuser&password=bankofanthos")
+echo "--- RAW OUTPUT FROM CURL ---"
+echo "$RAW_OUTPUT"
+echo "--- END RAW OUTPUT ---"
+TOKEN=$(echo "$RAW_OUTPUT" | sed -E 's/.*"token":"([^"]+)".*/\1/')
 if [ -z "$TOKEN" ]; then
-  echo "Failed to get token" >&2
+  echo "Failed to get token from raw output." >&2
   exit 1
 fi
 JSON_PAYLOAD='{"prompt":"analyze my spend","account_id":"1011226111","window_days":30}'
-curl -s -X POST -H "Content-Type: application/json" -H "Authorization: Bearer $TOKEN" -d "$JSON_PAYLOAD" "http://agent-gateway.default.svc.cluster.local/chat"
+AGW_URL="http://agent-gateway.default.svc.cluster.local:8080/chat"
+
+# Retry the AGW call up to 3 times (covers transient MCP 502 on cold start)
+if ! bash -lc 'curl_agw_with_retry "$AGW_URL" "$JSON_PAYLOAD" "$TOKEN"'; then
+  echo "AGW call failed after retries." >&2
+  exit 2
+fi
 EOF
 )
 
 # Run the command in a job
 run_curl_job e2e-auth-job sh -c "$chat_command"
 
-echo
 echo "==> Done."
+
+exit 0

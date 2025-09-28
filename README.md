@@ -5,6 +5,64 @@
 > We extend it with an agent-powered **Personal Financial Advisor** layer (MCP server + monitoring/insight agent)
 > and GKE/Artifact Registry/Cloud SQL/IAM integrations.
 
+---
+
+## 🔎 Status & recent changes (stabilization)
+
+This fork is **fully functional** end-to-end (UI + APIs). Highlights from recent fixes:
+
+- **Reliable smoke tests**
+  - New `scripts/e2e-smoke.sh` authenticated E2E test.
+  - Makefile simplified to call the script (less quoting pain).
+- **Agent path + auth**
+  - `agent-gateway` now calls `mcp-server` via `GET /transactions/<account_id>` and **forwards the JWT**.
+  - E2E payloads use the correct `account_id` to satisfy `transactionhistory` authorization.
+- **Workload Identity**
+  - Enabled for `transactionhistory` (metrics/tracing perms), eliminating crash loops from IAM errors.
+- **Startup resilience**
+  - `transaction-monitoring-agent` waits for `userservice` readiness before starting.
+- **Frontend alignment**
+  - Unified `service-api-config` values (e.g., `BALANCES_API_ADDR=balancereader:8080`), removed `http://` prefixes where the app builds full URLs.
+- **Ledgerwriter stability**
+  - Explicit `BALANCES_API_ADDR` env mapping in `kubernetes-manifests/ledger-writer.yaml` fixes `CreateContainerConfigError` (missing key).
+- **UI verified**
+  - Login, balance, history, **deposits** and **payments** succeed; balance updates live.
+
+---
+
+## Quick Start (Dev)
+
+> Assumes: GKE cluster, `kubectl` context set, and Artifact Registry repo exists.
+
+1) Create the JWT secret required by the upstream frontend:
+```bash
+kubectl apply -f extras/jwt/jwt-secret.yaml
+````
+
+2) Apply base manifests (Bank of Anthos) + this repo’s changes:
+
+```bash
+kubectl apply -f kubernetes-manifests
+```
+
+3) Run the dev overlay and smokes (agents + MCP + gateway):
+
+```bash
+make dev-apply
+make dev-status
+make dev-smoke
+make e2e-auth-smoke
+```
+
+4) Visit the UI:
+
+* External IP: `kubectl get svc frontend`
+* Login (demo user): **testuser / bankofanthos**
+
+If a smoke occasionally returns a `502` (MCP cold start), simply re-run; we also ship a small retry in `e2e-smoke.sh`.
+
+---
+
 ## Repository layout (AI additions)
 
 We follow a **Kustomize base + overlays** pattern for each service under `src/ai/*`.
@@ -24,21 +82,23 @@ src/
     ├── insight-agent
     │   └── k8s/
     │       ├── base/{deployment.yaml,kustomization.yaml}
-    │       └── overlays/
-    │           ├── development/{kustomization.yaml,patch-dev.yaml,patch-dev-env.yaml}
-    │           └── production/{kustomization.yaml,patch-prod.yaml}
-    └── mcp-server
-        ├── Dockerfile
-        ├── k8s/
-        │   ├── base/{deployment.yaml,kustomization.yaml}
-        │   └── overlays/
-        │       ├── development/{kustomization.yaml,patch-dev.yaml,patch-dev-env.yaml}
-        │       └── production/{kustomization.yaml,patch-prod.yaml}
-        ├── main.py
-        └── requirements.txt
+    │       │   └── overlays/
+    │       │       ├── development/{kustomization.yaml,patch-dev.yaml,patch-dev-env.yaml}
+    │       │       └── production/{kustomization.yaml,patch-prod.yaml}
+    │       └── mcp-server
+    │           ├── Dockerfile
+    │           ├── k8s/
+    │           │   ├── base/{deployment.yaml,kustomization.yaml}
+    │           │   └── overlays/
+    │           │       ├── development/{kustomization.yaml,patch-dev.yaml,patch-dev-env.yaml}
+    │           │       └── production/{kustomization.yaml,patch-prod.yaml}
+    │           ├── main.py
+    │           └── requirements.txt
 ```
 
 > **Note on legacy directories:** You may also see top-level legacy folders (e.g. `insight-agent/`, `mcp-server/`, `transaction-monitoring-agent/`). These are kept temporarily for reference during the merge; plan to remove them on the `hackathon-submission` branch.
+
+---
 
 ## What we added/changed (high level)
 
@@ -121,6 +181,48 @@ make e2e-auth-smoke
 
 ---
 
+## 📦 Releasing new images (Tags **or** Digests)
+
+Two safe ways to roll a new image to the dev overlay.
+
+### Option A — Build & roll a fresh **tag**
+
+```bash
+# Build & push (example: v0.1.3)
+FRONTEND_TAG=v0.1.3
+docker buildx build --platform linux/amd64 \
+  -t "${REG}/frontend:${FRONTEND_TAG}" \
+  -f src/frontend/Dockerfile src/frontend --push
+
+# Pin in the dev overlay and apply
+( cd src/frontend/k8s/overlays/development && \
+  kustomize edit set image frontend=${REG}/frontend:${FRONTEND_TAG} )
+kustomize build src/frontend/k8s/overlays/development | kubectl apply -f - 
+kubectl rollout status deploy/frontend
+```
+
+### Option B — Lock to an **immutable digest**
+
+```bash
+# Get the digest you want to deploy
+DIGEST=$(gcloud artifacts tags list \
+  --location=${REGION} --repository=${REPO} --package=frontend \
+  --format='value(version)' --filter='name ~ v0.1.3' | head -n1)
+
+# Set image to use @sha256 digest explicitly
+( cd src/frontend/k8s/overlays/development && \
+  kustomize edit set image frontend=${REG}/frontend @${DIGEST} )
+kustomize build src/frontend/k8s/overlays/development | kubectl apply -f - 
+kubectl rollout status deploy/frontend
+```
+
+**When to use which?**
+
+* **Tag** during rapid iteration.
+* **Digest** when you need perfect reproducibility (no tag drift).
+
+---
+
 ## 📦 Build & Deploy: insight-agent (dev overlay)
 
 We’ve added convenience targets to streamline **build → push → apply → watch logs** for `insight-agent`.
@@ -144,7 +246,7 @@ make deploy-insight-agent-dev INS_TAG=gemini
 ```bash
 kubectl create secret generic gemini-api-key \
   --from-literal=api-key=<YOUR_GEMINI_API_KEY> \
-  --dry-run=client -o yaml | kubectl apply -f -
+  --dry-run=client -o yaml | kubectl apply -f - 
 ```
 
 ### Option B: Vertex AI variant (recommended)
@@ -210,9 +312,9 @@ The `overlays/production` Kustomize configs add, where applicable:
 Deploy (per service):
 
 ```bash
-kustomize build src/ai/mcp-server/k8s/overlays/production | kubectl apply -f -
-kustomize build src/ai/agent-gateway/k8s/overlays/production | kubectl apply -f -
-kustomize build src/ai/insight-agent/k8s/overlays/production | kubectl apply -f -
+kustomize build src/ai/mcp-server/k8s/overlays/production | kubectl apply -f - 
+kustomize build src/ai/agent-gateway/k8s/overlays/production | kubectl apply -f - 
+kustomize build src/ai/insight-agent/k8s/overlays/production | kubectl apply -f - 
 ```
 
 ---
@@ -239,5 +341,3 @@ kustomize build src/ai/insight-agent/k8s/overlays/production | kubectl apply -f 
 ---
 
 © Forked from Google’s Bank of Anthos (Apache 2.0). See upstream repo for license details.
-
----
