@@ -89,22 +89,20 @@ OK
 ```
 
 ### 6. Demo flow
-**6.1 User login + JWT**
-```bash
-kubectl -n default run curl --rm -i --restart=Never --image=curlimages/curl -- \
-  sh -lc 'curl -sS "http://userservice:8080/login?username=testuser&password=bankofanthos"'
-```
+> **Note:** This section requires `jq` to be installed.
 
-**6.2 Call Agent Gateway with JWT**
+**6.1 Get JWT and call Agent Gateway**
 ```bash
-TOKEN=<paste-token-here>
+TOKEN=$(kubectl -n default run curl --rm -i --restart=Never --image=curlimages/curl -- \
+  sh -lc 'curl -s "http://userservice:8080/login?username=testuser&password=bankofanthos"' 2>/dev/null | grep "^{" | jq -r .token)
+
 kubectl -n default run curl --rm -i --restart=Never --image=curlimages/curl -- \
   sh -lc "curl -sS -H 'Authorization: Bearer $TOKEN' \
   http://agent-gateway:80/chat -d '{\"query\": \"Summarize spending for account 1011226111\"}' \
   -H 'Content-Type: application/json'"
 ```
 
-**6.3 Gemini CLI (GCLI) demo**
+**6.2 Gemini CLI (GCLI) demo**
 ```bash
 gcli ask "summarize what insight-agent/main_vertex.py does"
 gcli ask --context logs:"$(kubectl logs deploy/agent-gateway --tail=50)" \
