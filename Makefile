@@ -161,11 +161,11 @@ deploy-insight-agent-vertex: ## Build/push (if needed) and deploy insight-agent 
 	@[ -n "${REG}" ] || (echo "REG is required"; exit 1)
 	@[ -n "${INS_TAG}" ] || (echo "INS_TAG=<tag> is required, e.g. INS_TAG=vertex"; exit 1)
 	docker buildx build --platform linux/amd64 \
-	  -t ${REG}/insight-agent:${INS_TAG} \
+	  -t ${REG}/insight-agent:$(shell date +%Y%m%d%H%M%S) \
 	  -f src/ai/insight-agent/Dockerfile.vertex \
 	  src/ai/insight-agent --push --no-cache
 	( cd src/ai/insight-agent/k8s/overlays/development && \
-	  kustomize edit set image insight-agent=${REG}/insight-agent:${INS_TAG} )
+	  kustomize edit set image insight-agent=${REG}/insight-agent:$(shell date +%Y%m%d%H%M%S) )
 	kustomize build src/ai/insight-agent/k8s/overlays/development | kubectl apply -f -
 	kubectl -n default rollout restart deploy/insight-agent
 	kubectl -n default rollout status  deploy/insight-agent
