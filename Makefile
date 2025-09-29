@@ -72,6 +72,7 @@ dev-apply: dev-config
 	@echo "==> Applying dev overlays with pinned images..."
 	kustomize build $(MCP_DEV_OVERLAY) | kubectl apply -n $(NS) -f -
 	kustomize build $(AG_DEV_OVERLAY)  | kubectl apply -n $(NS) -f -
+	kustomize build src/ai/insight-agent/k8s/overlays/development | kubectl apply -n $(NS) -f -
 	@echo "==> Forcing rollout of agent-gateway to pick up ConfigMap changes..."
 	kubectl -n $(NS) rollout restart deploy/agent-gateway
 dev-status:
