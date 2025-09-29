@@ -9,7 +9,7 @@ app = Flask(__name__)
 log = logging.getLogger("agent-gateway")
 
 # --- Configuration (env) ---
-MCP_SERVER_URL = os.getenv("MCP_SERVER_URL", "http://mcp-server.default.svc.cluster.local")
+MCP_SERVER_URL = os.getenv("MCP_SERVER_URL", "http://mcp-server.default.svc.cluster.local:80")
 TIMEOUT = float(os.getenv("HTTP_TIMEOUT_SEC", "8.0"))
 
 # Optional Vertex/Project context (not strictly needed by this stub, but handy to surface)
