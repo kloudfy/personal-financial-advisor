@@ -15,7 +15,7 @@ spec:
             - name: VERTEX_LOCATION
               value: us-central1
             - name: VERTEX_MODEL
-              value: gemini-pro
+              value: gemini-1.0-pro
             # Optional: project if not already provided via config/env
             - name: GOOGLE_CLOUD_PROJECT
               valueFrom:
