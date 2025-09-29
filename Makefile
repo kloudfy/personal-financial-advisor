@@ -163,7 +163,7 @@ deploy-insight-agent-vertex: ## Build/push (if needed) and deploy insight-agent 
 	docker buildx build --platform linux/amd64 \
 	  -t ${REG}/insight-agent:${INS_TAG} \
 	  -f src/ai/insight-agent/Dockerfile.vertex \
-	  src/ai/insight-agent --push
+	  src/ai/insight-agent --push --no-cache
 	( cd src/ai/insight-agent/k8s/overlays/development && \
 	  kustomize edit set image insight-agent=${REG}/insight-agent:${INS_TAG} )
 	kustomize build src/ai/insight-agent/k8s/overlays/development | kubectl apply -f -
