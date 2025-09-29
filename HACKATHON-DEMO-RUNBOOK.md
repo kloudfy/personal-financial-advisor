@@ -102,13 +102,6 @@ kubectl -n default run curl --rm -i --restart=Never --image=curlimages/curl -- \
   -H 'Content-Type: application/json'"
 ```
 
-**6.2 Gemini CLI (GCLI) demo**
-```bash
-gcli ask "summarize what insight-agent/main_vertex.py does"
-gcli ask --context logs:"$(kubectl logs deploy/agent-gateway --tail=50)" \
-  "explain errors & propose a one-line fix"
-```
-
 ### 7. Clean up
 ```bash
 make demo-clean
