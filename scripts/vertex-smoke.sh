@@ -13,7 +13,7 @@ import os
 
 project = os.environ.get("GOOGLE_CLOUD_PROJECT")
 location = os.environ.get("VERTEX_LOCATION", "us-central1")
-model_id = os.environ.get("VERTEX_MODEL", "gemini-1.0-pro")
+model_id = os.environ.get("VERTEX_MODEL", "gemini-2.5-pro")
 
 init(project=project, location=location)
 model = GenerativeModel(model_id)
@@ -52,7 +52,7 @@ spec:
         - name: VERTEX_LOCATION
           value: us-central1
         - name: VERTEX_MODEL
-          value: gemini-1.0-pro
+          value: gemini-2.5-pro
         command: ["/bin/sh","-lc"]
         args:
         - |
