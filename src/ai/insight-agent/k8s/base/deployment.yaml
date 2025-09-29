@@ -22,6 +22,7 @@ spec:
       containers:
         - name: insight-agent
           image: insight-agent:dev    # <-- overlaid per env
+          imagePullPolicy: Always
           ports:
             - containerPort: 8080
           # keep base clean; probes/envs added in overlays
