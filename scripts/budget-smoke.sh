@@ -33,7 +33,7 @@ def main():
   window = os.getenv("WINDOW_DAYS","30")
   # 1) JWT
   raw = http_get("http://userservice.default.svc.cluster.local:8080/login?username=testuser&password=bankofanthos")
-  m = re.search(r'"token":"([^"]+)", raw)
+  m = re.search(r'"token":"([^"]+)"\, raw)
   if not m:
     print("Failed to obtain JWT", file=sys.stderr)
     sys.exit(2)
