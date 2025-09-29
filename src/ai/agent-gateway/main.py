@@ -6,7 +6,6 @@ from flask import Flask, request, jsonify
 import requests
 
 app = Flask(__name__)
-logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 log = logging.getLogger("agent-gateway")
 
 # --- Configuration (env) ---
