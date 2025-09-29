@@ -8,7 +8,7 @@ from typing import Any, List
 BACKEND = os.getenv("INSIGHT_BACKEND", "vertex").lower()
 
 app = Flask(__name__)
-logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
+logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO").upper())
 log = logging.getLogger("insight-agent")
 
 @app.get("/healthz")
