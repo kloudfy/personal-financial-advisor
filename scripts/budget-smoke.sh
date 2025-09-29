@@ -20,7 +20,7 @@ def http_get(url, headers=None, timeout=10):
   with u.urlopen(req, timeout=timeout) as r:
     return r.read().decode("utf-8")
 
-def http_post(url, data, headers=None, timeout=15):
+def http_post(url, data, headers=None, timeout=120):
   body = json.dumps(data).encode("utf-8")
   h = {"Content-Type":"application/json"}
   if headers: h.update(headers)
