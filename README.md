@@ -5,6 +5,9 @@
 > We extend it with an agent-powered **Personal Financial Advisor** layer (MCP server + monitoring/insight agent)
 > and GKE/Artifact Registry/Cloud SQL/IAM integrations.
 
+> **Judge-Friendly Quickstart:** See **[HACKATHON-DEMO-RUNBOOK.md](./HACKATHON-DEMO-RUNBOOK.md)** for a one-page,
+> copy/paste run-through (from `git clone` → deploy → smokes → Vertex check).
+
 ---
 
 ## Quick Start (Dev)
@@ -325,6 +328,27 @@ The app is fully functional; all smokes pass. Highlights:
 * **Prebuilding the **vertex-smoke** image removed transient timeout issues.**  
   Installing dependencies at runtime (`pip install` inside the Job) was too slow on GKE Autopilot.  
   By shipping a tiny prebuilt image, the smoke job now runs instantly and reliably.
+
+---
+
+--- 
+
+## Architecture (quick callouts)
+
+**Gateway & MCP path**
+```
+client → agent-gateway (svc:port 80) → mcp-server (svc:8080) → transactionhistory (svc:8080) → Cloud SQL
+```
+
+**Insight path (Vertex mode)**
+```
+agent-gateway → insight-agent (svc:8080, KSA=insight-agent) --WI→ GSA=insight-agent @${PROJECT}.iam.gserviceaccount.com → Vertex AI (Gemini)
+```
+
+**Notes**
+* AGW listens via K8s Service on **port 80** (the smokes use this).
+* WI binding: `roles/iam.workloadIdentityUser` on the GSA, plus `roles/aiplatform.user` for Vertex.
+* Images come from Artifact Registry (`${REGION}-docker.pkg.dev/${PROJECT}/${REPO}`).
 
 ---
 
