@@ -1,0 +1,19 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp-server
+spec:
+  template:
+    metadata:
+      labels:
+        environment: development
+    spec:
+      containers:
+        - name: mcp-server
+          env:
+            - name: ENV
+              value: "development"
+            - name: MANAGEMENT_METRICS_EXPORT_STACKDRIVER_ENABLED
+              value: "false"
+            - name: MOCK_MODE
+              value: "false"

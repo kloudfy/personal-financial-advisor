@@ -1,0 +1,4 @@
+flask
+gunicorn
+google-cloud-aiplatform
+# google-adk  # optional; only needed if INSIGHT_BACKEND=adk

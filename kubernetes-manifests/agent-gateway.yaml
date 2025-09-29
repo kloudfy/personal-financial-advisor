@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-gateway
+  namespace: default
+  labels:
+    app: agent-gateway
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: agent-gateway
+  template:
+    metadata:
+      labels:
+        app: agent-gateway
+    spec:
+      serviceAccountName: bank-of-anthos # Uses the KSA linked to insight-agent-sa for GCP APIs
+      containers:
+      - name: agent-gateway
+        image: YOUR_AGENT_GATEWAY_IMAGE_HERE # <-- IMPORTANT: Replace with your actual image path
+        ports:
+        - containerPort: 8080
+        env:
+        - name: USER_SERVICE_ADDR
+          valueFrom:
+            configMapKeyRef:
+              name: service-api-config
+              key: USER_SERVICE_URI
+        - name: DEFAULT_USERNAME
+          valueFrom:
+            configMapKeyRef:
+              name: demo-data-config
+              key: DEMO_LOGIN_USERNAME
+        - name: DEFAULT_PASSWORD
+          valueFrom:
+            configMapKeyRef:
+              name: demo-data-config
+              key: DEMO_LOGIN_PASSWORD
+        resources:
+          requests:
+            cpu: "260m"
+            memory: "267Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"

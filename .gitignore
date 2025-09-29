@@ -233,6 +233,9 @@ verify_jwt.py
 /verify_jwt.py
 /iam-policy.json
 /sa-key.json
+/Comprehensive Analysis with GCLI.md
+/gemini_chat_history.md
 *.key
 *.key.pub
+README.bak
 

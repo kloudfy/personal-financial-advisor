@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: insight-agent
+  namespace: default
+  annotations:
+    # Patched by Makefile 'vertex-wi-bootstrap' step to your real GSA.
+    # Example value:
+    # iam.gke.io/gcp-service-account: insight-agent @${PROJECT}.iam.gserviceaccount.com
+    iam.gke.io/gcp-service-account: REPLACE_ME_INSIGHT_AGENT_GSA

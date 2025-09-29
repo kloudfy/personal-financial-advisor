@@ -1,0 +1,28 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: insight-agent
+  labels:
+    app: insight-agent
+    application: personal-financial-advisor
+    tier: ai
+spec:
+  selector:
+    matchLabels:
+      app: insight-agent
+      application: personal-financial-advisor
+      tier: ai
+  template:
+    metadata:
+      labels:
+        app: insight-agent
+        application: personal-financial-advisor
+        tier: ai
+    spec:
+      containers:
+        - name: insight-agent
+          image: insight-agent:dev    # <-- overlaid per env
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+          # keep base clean; probes/envs added in overlays

@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-gateway
+spec:
+  template:
+    metadata:
+      annotations:
+        iam.gke.io/gcp-service-account: agent-gateway @${GOOGLE_CLOUD_PROJECT}.iam.gserviceaccount.com
+    spec:
+      containers:
+        - name: agent-gateway
+          env:
+            - name: GOOGLE_CLOUD_PROJECT
+              valueFrom:
+                configMapKeyRef:
+                  name: vertex-config
+                  key: GOOGLE_CLOUD_PROJECT
+            - name: VERTEX_LOCATION
+              valueFrom:
+                configMapKeyRef:
+                  name: vertex-config
+                  key: VERTEX_LOCATION
+            - name: VERTEX_AGENT_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: vertex-config
+                  key: VERTEX_AGENT_ID
+            - name: MANAGEMENT_METRICS_EXPORT_STACKDRIVER_ENABLED
+              value: "true"

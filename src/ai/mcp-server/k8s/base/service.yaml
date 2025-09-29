@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: mcp-server
+  labels:
+    app: mcp-server
+    application: personal-financial-advisor
+    tier: ai
+spec:
+  type: ClusterIP
+  selector:
+    app: mcp-server
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: 8080

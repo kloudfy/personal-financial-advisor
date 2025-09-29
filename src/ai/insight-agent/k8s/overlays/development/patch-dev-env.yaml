@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: insight-agent
+spec:
+  template:
+    spec:
+      containers:
+        - name: insight-agent
+          env:
+            # Switch agent to Vertex mode (your app can branch on this)
+            - name: INSIGHT_BACKEND
+              value: vertex
+            # Location/Model for Gemini on Vertex
+            - name: VERTEX_LOCATION
+              value: us-central1
+            - name: VERTEX_MODEL
+              value: gemini-2.5-pro
+            # Optional: project if not already provided via config/env
+            - name: GOOGLE_CLOUD_PROJECT
+              valueFrom:
+                configMapKeyRef:
+                  name: environment-config
+                  key: GOOGLE_CLOUD_PROJECT
+            - name: ENABLE_TRACING
+              value: "false"
+            - name: LOG_LEVEL
+              value: info
+            - name: USERSERVICE_URI
+              value: http://userservice:8080
+            - name: MCP_SERVER_URI
+              value: http://mcp-server:8080
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 6

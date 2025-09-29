@@ -1,0 +1,17 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-gateway
+spec:
+  template:
+    metadata:
+      labels:
+        environment: development
+    spec:
+      containers:
+        - name: agent-gateway
+          env:
+            - name: ENV
+              value: "development"
+            - name: MANAGEMENT_METRICS_EXPORT_STACKDRIVER_ENABLED
+              value: "false"

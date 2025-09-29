@@ -5,11 +5,11 @@ FROM python:3.11-slim
 WORKDIR /app
 
 # Copy the specific requirements file and install dependencies
-COPY src/mcp-server/requirements.txt .
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the specific main.py file
-COPY src/mcp-server/main.py .
+COPY main.py .
 
 # Run main.py when the container launches
 CMD ["python", "main.py"]

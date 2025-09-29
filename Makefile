@@ -1,102 +1,206 @@
-# Copyright 2019 Google LLC
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     https://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+.PHONY: demo demo-clean dev-apply dev-smoke dev-status set-images
 
-.-PHONY: cluster deploy deploy-continuous logs checkstyle check-env
+# --- Default target ---
+default: demo
 
-CLUSTER=bank-of-anthos
-E2E_PATH=${PWD}/.github/workflows/ui-tests/
+# --- Demo Workflow ---
+.PHONY: demo demo-fast
 
-cluster: check-env
-	gcloud container clusters create ${CLUSTER} \
-		--project=${PROJECT_ID} --zone=${ZONE} \
-		--machine-type=e2-standard-4 --num-nodes=4 \
-		--enable-stackdriver-kubernetes --subnetwork=default \
-		--labels csm=
+# ------------------------------------------------------------------------------
+# Full end-to-end demo for judges:
+#  1) Apply dev overlays
+#  2) Quick smoke (health + AGW sample)
+#  3) Vertex WI smoke (Gemini on Vertex via WI)
+#  4) Authenticated end-to-end smoke
+# Usage:
+#   PROJECT=<id> REGION=us-central1 REPO=bank-of-anthos-repo REG=${REGION}-docker.pkg.dev/${PROJECT}/${REPO} make demo
+# ------------------------------------------------------------------------------
+demo: ## One command: dev-apply → dev-smoke → vertex-smoke → e2e-auth-smoke
+	@echo "==> [1/4] Applying dev overlays…"
+	@$(MAKE) --no-print-directory dev-apply
+	@echo "==> [2/4] Running quick smokes…"
+	@$(MAKE) --no-print-directory dev-smoke
+	@echo "==> [3/4] Verifying Vertex AI access (WI)…"
+	@$(MAKE) --no-print-directory vertex-smoke
+	@echo "==> [4/4] Running authenticated end-to-end smokes…"
+	@$(MAKE) --no-print-directory e2e-auth-smoke
+	@echo "✅ Demo complete. All checks passed."
 
-deploy: check-env
-	echo ${CLUSTER}
-	gcloud container clusters get-credentials --project ${PROJECT_ID} ${CLUSTER} --zone ${ZONE}
-	skaffold run --default-repo=us-central1-docker.pkg.dev/${PROJECT_ID}/bank-of-anthos -l skaffold.dev/run-id=${CLUSTER}-${PROJECT_ID}-${ZONE}
+# Same as demo but skips Vertex step (useful if Vertex is not enabled yet).
+demo-fast: ## One command: dev-apply → dev-smoke → e2e-auth-smoke (no Vertex)
+	@echo "==> [1/3] Applying dev overlays…"
+	@$(MAKE) --no-print-directory dev-apply
+	@echo "==> [2/3] Running quick smokes…"
+	@$(MAKE) --no-print-directory dev-smoke
+	@echo "==> [3/3] Running authenticated end-to-end smokes…"
+	@$(MAKE) --no-print-directory e2e-auth-smoke
+	@echo "✅ Demo (fast) complete."
 
-deploy-continuous: check-env
-	gcloud container clusters get-credentials --project ${PROJECT_ID} ${CLUSTER} --zone ${ZONE}
-	skaffold dev --default-repo=us-central1-docker.pkg.dev/${PROJECT_ID}/bank-of-anthos
+# --- Clean up demo resources ---
+demo-clean:
+	@echo "==> Cleaning up demo resources..."
+	-kubectl delete deploy/mcp-server deploy/agent-gateway -n $(NS) --ignore-not-found
+	-kubectl delete svc/mcp-server svc/agent-gateway -n $(NS) --ignore-not-found
+	-kubectl delete sa/mcp-server sa/agent-gateway -n $(NS) --ignore-not-found
+	@echo "==> Demo resources cleaned up."
 
-monolith-fw-rule: check-env
-	export CLUSTER_POD_CIDR="$(shell gcloud container clusters describe ${CLUSTER} --format="value(clusterIpv4Cidr)" --project ${PROJECT_ID} --zone=${ZONE})" && \
-	gcloud compute firewall-rules create monolith-gke-cluster --allow=TCP:8080 --project=${PROJECT_ID} --source-ranges=$${CLUSTER_POD_CIDR} --target-tags=monolith
+PROJECT ?= gke-hackathon-469600
+REPO    ?= bank-of-anthos-repo
+export REGION  ?= us-central1
+export GOOGLE_CLOUD_PROJECT ?= $(PROJECT)
+export VERTEX_LOCATION ?= us-central1
+export VERTEX_AGENT_ID ?= agent-123
+export REG     ?= $(REGION)-docker.pkg.dev/$(PROJECT)/$(REPO)
+export MCP_TAG ?= v0.1.0
+export AGW_TAG ?= v0.1.2
+export NS      ?= default
 
-monolith: check-env
-ifndef GCS_BUCKET
-	# GCS_BUCKET is undefined
-	# ATTENTION: Deployment proceeding with canonical pre-built monolith artifacts
-endif
-	# build and deploy Bank of Anthos along with a monolith backend service
-	mvn -f src/ledgermonolith/ package
-	src/ledgermonolith/scripts/build-artifacts.sh
-	src/ledgermonolith/scripts/deploy-monolith.sh
-	sed -i 's/\[PROJECT_ID\]/${PROJECT_ID}/g' src/ledgermonolith/config.yaml
-	gcloud container clusters get-credentials --project ${PROJECT_ID} ${CLUSTER} --zone ${ZONE}
-	kubectl apply -f src/ledgermonolith/config.yaml
-	kubectl apply -f extras/jwt/jwt-secret.yaml
-	kubectl apply -f kubernetes-manifests/accounts-db.yaml
-	kubectl apply -f kubernetes-manifests/userservice.yaml
-	kubectl apply -f kubernetes-manifests/contacts.yaml
-	kubectl apply -f kubernetes-manifests/frontend.yaml
-	kubectl apply -f kubernetes-manifests/loadgenerator.yaml
+# --- Paths ---
+MCP_DEV_OVERLAY := src/ai/mcp-server/k8s/overlays/development
+AG_DEV_OVERLAY  := src/ai/agent-gateway/k8s/overlays/development
 
-monolith-build: check-env
-ifndef GCS_BUCKET
-	$(error GCS_BUCKET is undefined; specify a Google Cloud Storage bucket to store your build artifacts)
-endif
-	# build the artifacts for the ledgermonolith service 
-	mvn -f src/ledgermonolith/ package
-	src/ledgermonolith/scripts/build-artifacts.sh
+# --- Primary Workflow Targets ---
+dev-config:
+	@echo "==> (re)creating vertex-config ConfigMap..."
+	kubectl -n $(NS) create configmap vertex-config \
+	  --from-literal=GOOGLE_CLOUD_PROJECT=$(PROJECT) \
+	  --from-literal=VERTEX_LOCATION=$(VERTEX_LOCATION) \
+	  --from-literal=VERTEX_AGENT_ID=$(VERTEX_AGENT_ID) \
+	  --dry-run=client -o yaml | kubectl apply -f -
 
-monolith-deploy: check-env
-ifndef GCS_BUCKET
-	# GCS_BUCKET is undefined
-	# ATTENTION: Deployment proceeding with canonical pre-built monolith artifacts
-endif
-	# deploy the ledgermonolith service to a GCE VM
-	src/ledgermonolith/scripts/deploy-monolith.sh
+dev-apply: dev-config
+	@echo "==> Applying dev overlays with pinned images..."
+	kustomize build $(MCP_DEV_OVERLAY) | kubectl apply -n $(NS) -f -
+	kustomize build $(AG_DEV_OVERLAY)  | kubectl apply -n $(NS) -f -
+	kustomize build src/ai/insight-agent/k8s/overlays/development | kubectl apply -n $(NS) -f -
+	@echo "==> Forcing rollout of agent-gateway to pick up ConfigMap changes..."
+	kubectl -n $(NS) rollout restart deploy/agent-gateway
+dev-status:
+	@echo "==> Checking rollout status..."
+	kubectl -n $(NS) rollout status deploy/mcp-server
+	kubectl -n $(NS) rollout status deploy/agent-gateway
 
-checkstyle:
-	mvn checkstyle:check
-	# disable warnings: import loading, todos, function members, duplicate code, public methods
-	pylint --rcfile=./.pylintrc ./src/*/*.py
+dev-smoke:
+	@echo "==> Running smoke tests..."
+	NS=$(NS) ./scripts/smoke-dev.sh
 
-test-e2e:
-	E2E_URL="http://$(shell kubectl get service frontend -o jsonpath='{.status.loadBalancer.ingress[0].ip}')" && \
-	docker run -it -v ${E2E_PATH}:/e2e -w /e2e -e CYPRESS_baseUrl=$${E2E_URL} cypress/included:5.0.0 $(E2E_FLAGS)
+# --- Image & Pinning Management ---
+set-images:
+	@echo "==> Pinning images in dev overlays..."
+	(cd $(MCP_DEV_OVERLAY) && kustomize edit set image mcp-server=$(REG)/mcp-server:$(MCP_TAG))
+	(cd $(AG_DEV_OVERLAY) && kustomize edit set image agent-gateway=$(REG)/agent-gateway:$(AGW_TAG))
 
-test-unit:
-	mvn test
-	for SERVICE in "contacts" "userservice"; \
-	do \
-		pushd src/$$SERVICE;\
-			python3 -m venv $$HOME/venv-$$SERVICE; \
-			source $$HOME/venv-$$SERVICE/bin/activate; \
-			pip install -r requirements.txt; \
-			python -m pytest -v -p no:warnings; \
-			deactivate; \
-		popd; \
-	done
+show-images:
+	@echo "==> Images currently running in cluster:"
+	kubectl -n $(NS) get deploy mcp-server -o=jsonpath='{.spec.template.spec.containers[0].image}{"\n"}'
+	kubectl -n $(NS) get deploy agent-gateway -o=jsonpath='{.spec.template.spec.containers[0].image}{"\n"}'
 
-check-env:
-ifndef PROJECT_ID
-	$(error PROJECT_ID is undefined)
-else ifndef ZONE
-	$(error ZONE is undefined)
-endif
+show-pins:
+	@echo "==> Images currently pinned in dev overlays:"
+	grep -A 2 "name: mcp-server" $(MCP_DEV_OVERLAY)/kustomization.yaml | tail -n 2
+	grep -A 2 "name: agent-gateway" $(AG_DEV_OVERLAY)/kustomization.yaml | tail -n 2
+
+# --- Manual Build/Push (optional) ---
+build-mcp:
+	docker buildx build --platform linux/amd64,linux/arm64 \
+	-t $(REG)/mcp-server:$(MCP_TAG) -f src/ai/mcp-server/Dockerfile . --push
+
+build-agw:
+	docker buildx build --platform linux/amd64,linux/arm64 \
+	-t $(REG)/agent-gateway:$(AGW_TAG) -f src/ai/agent-gateway/Dockerfile . --push
+
+.PHONY: demo demo-clean dev-apply dev-smoke dev-status set-images show-images show-pins build-mcp build-agw e2e-auth-smoke
+
+# --- Authenticated E2E smoke (userservice -> txhistory via mcp/agent-gateway)
+e2e-auth-smoke:
+	@echo "==> Running E2E authenticated smoke tests..."
+	NS=$(NS) ./scripts/e2e-smoke.sh
+
+## Note:
+## e2e-smoke.sh includes built-in retry logic for the /chat call to agent-gateway (port 80).
+## This improves stability under cold starts and avoids transient 502 errors.
+## See scripts/e2e-smoke.sh for inline comments explaining why retries are necessary
+## (cold starts, DNS/cache propagation) and details on the port fix (80, not 8080).
+## If you copy this logic elsewhere, keep the retry loop + short sleep, or expect
+## occasional 5xx during rapid rollouts.
+
+###############################################################################
+# Vertex AI (Workload Identity) – insight-agent (dev)
+###############################################################################
+.PHONY: vertex-enable vertex-wi-bootstrap deploy-insight-agent-vertex vertex-smoke
+
+vertex-enable: ## Enable Vertex AI API
+	gcloud services enable aiplatform.googleapis.com --project ${PROJECT}
+
+## Creates a GSA and binds it for WI to the KSA `insight-agent` in default NS.
+## Also grants minimal Vertex permissions.
+vertex-wi-bootstrap: ## Bootstrap Workload Identity for insight-agent (dev)
+	@[ -n "${PROJECT}" ] || (echo "PROJECT is required"; exit 1)
+	gcloud iam service-accounts create insight-agent \
+	  --project ${PROJECT} \
+	  --display-name "Insight Agent (Vertex)" || true
+	@echo "Waiting 5 seconds for service account to propagate..."
+	sleep 5
+	gcloud projects add-iam-policy-binding ${PROJECT} \
+	  --member "serviceAccount:insight-agent@${PROJECT}.iam.gserviceaccount.com" \
+	  --role "roles/aiplatform.user"
+	# Allow KSA to impersonate GSA via WI
+	gcloud iam service-accounts add-iam-policy-binding \
+	  insight-agent@${PROJECT}.iam.gserviceaccount.com \
+	  --role "roles/iam.workloadIdentityUser" \
+	  --member "serviceAccount:${PROJECT}.svc.id.goog[default/insight-agent]"
+	# Patch annotation into the KSA manifest & apply overlay (dev)
+	sed -i.bak 's#^\s*iam.gke.io/gcp-service-account:.*#    iam.gke.io/gcp-service-account: insight-agent@'"${PROJECT}"'.iam.gserviceaccount.com#' \
+	  src/ai/insight-agent/k8s/overlays/development/sa-wi.yaml
+	kustomize build src/ai/insight-agent/k8s/overlays/development | kubectl apply -f -
+	kubectl -n default rollout status deploy/insight-agent
+
+deploy-insight-agent-vertex: ## Build/push (if needed) and deploy insight-agent in Vertex mode
+	@[ -n "${PROJECT}" ] || (echo "PROJECT is required"; exit 1)
+	@[ -n "${REPO}" ] || (echo "REPO is required"; exit 1)
+	@[ -n "${REG}" ] || (echo "REG is required"; exit 1)
+	@[ -n "${INS_TAG}" ] || (echo "INS_TAG=<tag> is required, e.g. INS_TAG=vertex"; exit 1)
+	docker buildx build --platform linux/amd64 \
+	  -t ${REG}/insight-agent:${INS_TAG} \
+	  -f src/ai/insight-agent/Dockerfile.vertex \
+	  src/ai/insight-agent --push --no-cache
+	( cd src/ai/insight-agent/k8s/overlays/development && \
+	  kustomize edit set image insight-agent=${REG}/insight-agent:${INS_TAG} )
+	kustomize build src/ai/insight-agent/k8s/overlays/development | kubectl apply -f -
+	kubectl -n default rollout restart deploy/insight-agent
+	kubectl set image deployment/insight-agent insight-agent=${REG}/insight-agent:${INS_TAG} -n default
+	kubectl -n default rollout status  deploy/insight-agent
+
+vertex-smoke-image: ## Build/push the prebuilt vertex-smoke image
+	@[ -n "${PROJECT}" ] || (echo "PROJECT is required"; exit 1)
+	@[ -n "${REPO}" ] || (echo "REPO is required"; exit 1)
+	@[ -n "${REG}" ] || (echo "REG is required"; exit 1)
+	docker buildx build --platform linux/amd64 \
+	  -f Dockerfile.smoke \
+	  -t ${REG}/vertex-smoke:latest . --push
+
+vertex-smoke: ## One-off pod calls Vertex Gemini with WI (expects WI bootstrap done)
+	chmod +x scripts/vertex-smoke.sh
+	./scripts/vertex-smoke.sh
+
+.PHONY: budget-smoke
+budget-smoke: ## One-off pod that fetches txns via MCP and hits /budget/coach on insight-agent
+	chmod +x scripts/budget-smoke.sh
+	./scripts/budget-smoke.sh
+
+
+###############################################################################
+# Docs / Helpers
+###############################################################################
+.PHONY: runbook
+runbook: ## Print Judge-Friendly Quickstart from runbook
+	@awk '/## 🎯 Judge-Friendly Quickstart/,/^---/' HACKATHON-DEMO-RUNBOOK.md \
+	| sed \
+	  -e 's/^## 🎯.*/\x1b[36;1m&\x1b[0m/' \
+	  -e 's/^# \(.*\)/\x1b[33m# \1\x1b[0m/' \
+	  -e 's/^\(git\|make\|export\|kubectl\|docker\)/\x1b[32m\1\x1b[0m/' \
+	  -e 's/^\(\s\+\)\(git\|make\|export\|kubectl\|docker\)/\1\x1b[32m\2\x1b[0m/'
+
+.PHONY: runbook-plain
+runbook-plain: ## Print Judge-Friendly Quickstart (no color)
+	@awk '/## 🎯 Judge-Friendly Quickstart/,/^---/' HACKATHON-DEMO-RUNBOOK.md
