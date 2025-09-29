@@ -181,6 +181,11 @@ vertex-smoke: ## One-off pod calls Vertex Gemini with WI (expects WI bootstrap d
 	chmod +x scripts/vertex-smoke.sh
 	./scripts/vertex-smoke.sh
 
+.PHONY: budget-smoke
+budget-smoke: ## One-off pod that fetches txns via MCP and hits /budget/coach on insight-agent
+	chmod +x scripts/budget-smoke.sh
+	./scripts/budget-smoke.sh
+
 
 ###############################################################################
 # Docs / Helpers
