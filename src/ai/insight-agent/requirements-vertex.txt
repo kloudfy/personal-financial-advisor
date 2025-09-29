@@ -1,4 +1,4 @@
 flask
 gunicorn
 google-cloud-aiplatform
-google-adk
+# google-adk  # optional; only needed if INSIGHT_BACKEND=adk

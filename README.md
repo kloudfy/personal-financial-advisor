@@ -98,6 +98,30 @@ export REG="${REGION}-docker.pkg.dev/${PROJECT}/${REPO}"
 
 ---
 
+## Vertex AI Integration
+
+The insight-agent can connect to Google Vertex AI using Workload Identity (WI).  
+Use the provided Makefile targets to bootstrap WI, deploy the agent, and verify connectivity.
+
+### Vertex Smoke Test (prebuilt image)
+
+To avoid slow `pip install` inside ephemeral pods, we now ship a prebuilt **vertex-smoke** image.
+
+1. Build & push the smoke image (one time):
+   ```bash
+   make vertex-smoke-image \
+     PROJECT=${PROJECT} \
+     REPO=bank-of-anthos-repo \
+     REG=us-central1-docker.pkg.dev/${PROJECT}/bank-of-anthos-repo
+   ```
+
+2. Run the smoke test (fast and reliable):
+   ```bash
+   make vertex-smoke
+   ```
+
+---
+
 ## 🚀 One-command Demo
 
 The `Makefile` provides a simple, one-command workflow that applies dev overlays and runs smoke tests.
@@ -298,6 +322,9 @@ The app is fully functional; all smokes pass. Highlights:
 * **Prefer `kubectl create job` for tests:** For short-lived non-interactive checks, `Job + wait + logs` avoids attach races and warnings.
 * **Workload Identity > SA keys:** Prefer WI for GKE to avoid managing service account keys.
 * **Built-in retries for smokes:** Transient 5xx (cold starts, DNS/cache propagation) are normal right after rollouts. The smoke’s retry wrapper (and using **port 80** for AGW) removes flakes without masking real issues.
+* **Prebuilding the **vertex-smoke** image removed transient timeout issues.**  
+  Installing dependencies at runtime (`pip install` inside the Job) was too slow on GKE Autopilot.  
+  By shipping a tiny prebuilt image, the smoke job now runs instantly and reliably.
 
 ---
 

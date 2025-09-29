@@ -1,0 +1,98 @@
+diff --git a/Dockerfile.smoke b/Dockerfile.smoke
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/Dockerfile.smoke
+@@ -0,0 +1,11 @@
++FROM python:3.11-slim
++
++# Install only what's needed for smoke check
++RUN pip install --no-cache-dir --upgrade \
++    google-cloud-aiplatform \
++    "vertexai>=1.66.0"
++
++# Copy smoke test script
++COPY scripts/vertex_smoke.py /app/vertex_smoke.py
++
++WORKDIR /app
++CMD ["python", "/app/vertex_smoke.py"]
+diff --git a/scripts/vertex-smoke.sh b/scripts/vertex-smoke.sh
+index 4444444..5555555 100755
+--- a/scripts/vertex-smoke.sh
++++ b/scripts/vertex-smoke.sh
+@@ -5,68 +5,46 @@
+ JOB="vertex-smoke-$"$
+ KSA="insight-agent"
+ 
+-cat <<'PY' > /tmp/vertex_smoke.py
+-from google.cloud import aiplatform
+-from vertexai import init
+-from vertexai.generative_models import GenerativeModel
+-import os
+-
+-project = os.environ.get("GOOGLE_CLOUD_PROJECT")
+-location = os.environ.get("VERTEX_LOCATION", "us-central1")
+-model_id = os.environ.get("VERTEX_MODEL", "gemini-2.5-pro")
+-
+-init(project=project, location=location)
+-model = GenerativeModel(model_id)
+-resp = model.generate_content("Reply with exactly: OK")
+-text = resp.text.strip()
+-print(text)
+-assert text == "OK", f"Unexpected response: {text!r}"
+-PY
+-
+-echo "==> Creating one-off Job '${JOB}' to verify Vertex AI access via Workload Identity..."
++echo "==> Creating one-off Job '${JOB}' using prebuilt vertex-smoke image..."
+ kubectl -n "${NS}" delete job "${JOB}" --ignore-not-found >/dev/null 2>&1 || true
+-kubectl -n "${NS}" delete configmap vertex-smoke-src --ignore-not-found >/dev/null 2>&1 || true
+-
+-kubectl -n "${NS}" create configmap vertex-smoke-src --from-file=/tmp/vertex_smoke.py
+-
+-kubectl -n "${NS}" apply -f - <<EOF
++kubectl -n "${NS}" apply -f - <<EOF
+ apiVersion: batch/v1
+ kind: Job
+ metadata:
+   name: ${JOB}
+ spec:
+-  backoffLimit: 0
++  backoffLimit: 0
+   template:
+     spec:
+       serviceAccountName: ${KSA}
+       restartPolicy: Never
+       containers:
+       - name: runner
+-        image: python:3.11-slim
+-        ...
+-        args:
+-        - |
+-          python -V
+-          pip install --no-cache-dir --upgrade google-cloud-aiplatform "vertexai>=1.66.0"
+-          python /work/vertex_smoke.py
+-        volumeMounts:
+-        - name: work
+-          mountPath: /work
+-      volumes:
+-      - name: work
+-        configMap:
+-          name: vertex-smoke-src
++        image: ${REG}/vertex-smoke:latest
++        env:
++        - name: GOOGLE_CLOUD_PROJECT
++          valueFrom:
++            configMapKeyRef:
++              name: environment-config
++              key: GOOGLE_CLOUD_PROJECT
++        - name: VERTEX_LOCATION
++          value: us-central1
++        - name: VERTEX_MODEL
++          value: gemini-2.5-pro
+ EOF
+ 
+-kubectl -n "${NS}" wait --for=condition=complete --timeout=420s job/${JOB}
++kubectl -n "${NS}" wait --for=condition=complete --timeout=120s job/${JOB}
+ echo "==> Logs:"
+ kubectl -n "${NS}" logs job/${JOB}
+ echo "==> Success."
