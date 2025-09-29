@@ -5,4 +5,4 @@ COPY requirements-vertex.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 COPY main_vertex.py ./main.py
 EXPOSE 8080
-CMD ["gunicorn", "-b", ":8080", "main:app"]
+CMD ["gunicorn", "-b", ":8080", "--timeout", "120", "main:app"]
