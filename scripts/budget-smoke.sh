@@ -47,7 +47,7 @@ def main():
     print("Transactions response not JSON:", tx_raw[:500], file=sys.stderr)
     sys.exit(3)
   # 3) Budget coach
-  resp_raw = http_post("http://insight-agent.default.svc.cluster.local:8080/budget/coach",
+  resp_raw = http_post("http://insight-agent.default.svc.cluster.local:80/budget/coach",
                        {"transactions": tx})
   try:
     obj = json.loads(resp_raw)
