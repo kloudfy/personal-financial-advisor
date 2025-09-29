@@ -4,10 +4,37 @@
 default: demo
 
 # --- Demo Workflow ---
-demo:
-	@echo "==> Running demo: apply dev overlays + smoke tests"
-	$(MAKE) dev-apply
-	$(MAKE) dev-smoke
+.PHONY: demo demo-fast
+
+# ------------------------------------------------------------------------------
+# Full end-to-end demo for judges:
+#  1) Apply dev overlays
+#  2) Quick smoke (health + AGW sample)
+#  3) Vertex WI smoke (Gemini on Vertex via WI)
+#  4) Authenticated end-to-end smoke
+# Usage:
+#   PROJECT=<id> REGION=us-central1 REPO=bank-of-anthos-repo REG=${REGION}-docker.pkg.dev/${PROJECT}/${REPO} make demo
+# ------------------------------------------------------------------------------
+demo: ## One command: dev-apply → dev-smoke → vertex-smoke → e2e-auth-smoke
+	@echo "==> [1/4] Applying dev overlays…"
+	@$(MAKE) --no-print-directory dev-apply
+	@echo "==> [2/4] Running quick smokes…"
+	@$(MAKE) --no-print-directory dev-smoke
+	@echo "==> [3/4] Verifying Vertex AI access (WI)…"
+	@$(MAKE) --no-print-directory vertex-smoke
+	@echo "==> [4/4] Running authenticated end-to-end smokes…"
+	@$(MAKE) --no-print-directory e2e-auth-smoke
+	@echo "✅ Demo complete. All checks passed."
+
+# Same as demo but skips Vertex step (useful if Vertex is not enabled yet).
+demo-fast: ## One command: dev-apply → dev-smoke → e2e-auth-smoke (no Vertex)
+	@echo "==> [1/3] Applying dev overlays…"
+	@$(MAKE) --no-print-directory dev-apply
+	@echo "==> [2/3] Running quick smokes…"
+	@$(MAKE) --no-print-directory dev-smoke
+	@echo "==> [3/3] Running authenticated end-to-end smokes…"
+	@$(MAKE) --no-print-directory e2e-auth-smoke
+	@echo "✅ Demo (fast) complete."
 
 # --- Clean up demo resources ---
 demo-clean:
@@ -153,3 +180,20 @@ vertex-smoke-image: ## Build/push the prebuilt vertex-smoke image
 vertex-smoke: ## One-off pod calls Vertex Gemini with WI (expects WI bootstrap done)
 	chmod +x scripts/vertex-smoke.sh
 	./scripts/vertex-smoke.sh
+
+
+###############################################################################
+# Docs / Helpers
+###############################################################################
+.PHONY: runbook
+runbook: ## Print Judge-Friendly Quickstart from runbook
+	@awk '/## 🎯 Judge-Friendly Quickstart/,/^---/' HACKATHON-DEMO-RUNBOOK.md \
+	| sed \
+	  -e 's/^## 🎯.*/\x1b[36;1m&\x1b[0m/' \
+	  -e 's/^# \(.*\)/\x1b[33m# \1\x1b[0m/' \
+	  -e 's/^\(git\|make\|export\|kubectl\|docker\)/\x1b[32m\1\x1b[0m/' \
+	  -e 's/^\(\s\+\)\(git\|make\|export\|kubectl\|docker\)/\1\x1b[32m\2\x1b[0m/'
+
+.PHONY: runbook-plain
+runbook-plain: ## Print Judge-Friendly Quickstart (no color)
+	@awk '/## 🎯 Judge-Friendly Quickstart/,/^---/' HACKATHON-DEMO-RUNBOOK.md
