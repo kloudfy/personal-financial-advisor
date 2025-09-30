@@ -9,10 +9,9 @@ This document provides two views:
 ## 🎯 Judge-Friendly Quickstart (10 commands)
 
 ```bash
-# 1. Clone repo & switch to hackathon branch
+# 1. Clone repo
 git clone https://github.com/kloudfy/personal-financial-advisor.git
 cd personal-financial-advisor
-git checkout hackathon-submission
 
 # 2. Set project/env
 export PROJECT=<your-gcp-project-id>
@@ -45,7 +44,6 @@ make e2e-auth-smoke
 ```bash
 git clone https://github.com/kloudfy/personal-financial-advisor.git
 cd personal-financial-advisor
-git checkout hackathon-submission
 ```
 
 ### 2. Configure environment

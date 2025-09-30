@@ -3,7 +3,7 @@
 > **Fork notice:** This project is a fork of Google’s
 > [Bank of Anthos](https://github.com/GoogleCloudPlatform/bank-of-anthos).
 > We extend it with an agent-powered **Personal Financial Advisor** layer (MCP server + monitoring/insight agent)
-> and GKE/Artifact Registry/Cloud SQL/IAM integrations.
+> and GKE/Artifact Registry/IAM integrations.
 
 > **Judge-Friendly Quickstart:** See **[HACKATHON-DEMO-RUNBOOK.md](./HACKATHON-DEMO-RUNBOOK.md)** for a one-page,
 > copy/paste run-through (from `git clone` → deploy → smokes → Vertex check).
