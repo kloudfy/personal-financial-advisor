@@ -188,6 +188,23 @@ budget-smoke: ## One-off pod that fetches txns via MCP and hits /budget/coach on
 	chmod +x scripts/budget-smoke.sh
 	./scripts/budget-smoke.sh
 
+# ------------------------------------------------------------
+# UI helpers (local demo)
+# ------------------------------------------------------------
+.PHONY: pfw-usersvc pfw-mcp pfw-insight ui-demo
+
+pfw-usersvc:
+	kubectl -n default port-forward deploy/userservice 8081:8080
+
+pfw-mcp:
+	kubectl -n default port-forward deploy/mcp-server 8082:8080
+
+pfw-insight:
+	kubectl -n default port-forward svc/insight-agent 8083:80
+
+ui-demo:
+	python3 -m venv .venv && . .venv/bin/activate && pip install -r ui/requirements.txt && streamlit run ui/budget_coach_app.py
+
 
 ###############################################################################
 # Docs / Helpers

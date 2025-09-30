@@ -1,5 +1,39 @@
 # Personal Financial Advisor (Hackathon build on Bank of Anthos)
 
+## Budget Coach UI (Local Demo)
+
+This lightweight UI lets judges run the **Budget Coach** flow end-to-end using your live microservices:
+
+**Flow:** `userservice → mcp-server → insight-agent (/budget/coach) → Vertex AI Gemini`
+
+### 1) Port-forward cluster services
+Open three terminals (or run in the background):
+
+```bash
+# userservice
+kubectl -n default port-forward deploy/userservice 8081:8080
+# mcp-server
+kubectl -n default port-forward deploy/mcp-server 8082:8080
+# insight-agent (Service on :80 → Pod :8080)
+kubectl -n default port-forward svc/insight-agent 8083:80
+```
+
+### 2) Launch UI
+From repo root:
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r ui/requirements.txt
+streamlit run ui/budget_coach_app.py
+```
+
+Open the Streamlit URL, set **Account ID** and **Window (days)** if needed, then click **Generate Budget Plan**.
+
+> Note: We’ve removed Cloud SQL from the quickstart description; current path uses MCP + Insight Agent with Vertex AI and IAM-integrated GKE/Artifact Registry.
+
+---
+
+(additional project docs continue below…)
+
 > **Fork notice:** This project is a fork of Google’s
 > [Bank of Anthos](https://github.com/GoogleCloudPlatform/bank-of-anthos).
 > We extend it with an agent-powered **Personal Financial Advisor** layer (MCP server + monitoring/insight agent)
