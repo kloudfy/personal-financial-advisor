@@ -75,6 +75,7 @@ dev-apply: dev-config
 	kustomize build src/ai/insight-agent/k8s/overlays/development | kubectl apply -n $(NS) -f -
 	@echo "==> Forcing rollout of agent-gateway to pick up ConfigMap changes..."
 	kubectl -n $(NS) rollout restart deploy/agent-gateway
+
 dev-status:
 	@echo "==> Checking rollout status..."
 	kubectl -n $(NS) rollout status deploy/mcp-server
@@ -205,15 +206,61 @@ pfw-insight:
 ui-demo:
 	python3 -m venv .venv && . .venv/bin/activate && pip install -r ui/requirements.txt && streamlit run ui/budget_coach_app.py
 
+# ======================= SMOKE TARGETS (safe to append) =======================
 
+.PHONY: ui-smoke svc-smoke
 
-ui-smoke: ## Curl UI root and mock coach POST
-	@echo "==> Hitting Streamlit UI /"
-	curl -sS http://localhost:8501/ | head -n 20 | sed -e 's/<[^>]*>//g' | head -n 10
-	@echo "==> Mock POST to /budget/coach (cluster svc)"
-	kubectl run coach-smoke --rm -i --restart=Never --image=curlimages/curl -- \
-	  sh -lc 'echo "{\"transactions\":[{\"date\":\"2025-09-30\",\"label\":\"Test\",\"amount\":-12.34},{\"date\":\"2025-09-30\",\"label\":\"Pay\",\"amount\":+1000}]}" \
-	    | curl -sS -H "Content-Type: application/json" -d @ui-budget-coach.patch http://insight-agent.default.svc.cluster.local/budget/coach | head -c 800 && echo'
+## ui-smoke: Curl Streamlit UI root locally + in-cluster /budget/coach mock POST
+## Assumes you started the local UI with:  make ui-demo   (port 8501)
+ui-smoke:
+	@echo "==> Checking local Streamlit UI (http://localhost:8501/)"
+	@set -e; \
+	  curl -fsS http://localhost:8501/ | head -n 40 | sed -e 's/<[^>]*>//g' | sed 's/^[ \t]*//' | awk 'NR<=25{print}'; \
+	  echo; echo "==> In-cluster mock POST to insight-agent /budget/coach"; \
+	  kubectl run coach-smoke-$$RANDOM --rm -i --restart=Never --image=curlimages/curl -- \
+	    sh -lc 'cat <<JSON | curl -fsS -H "Content-Type: application/json" -d @- \
+	      http://insight-agent.default.svc.cluster.local:80/budget/coach | head -c 800; echo; \
+	      echo "OK"'
+	@echo '  {"transactions":[{"date":"2025-09-30","label":"Test","amount":-12.34},{"date":"2025-09-30","label":"Pay","amount":1000.00}]}'
+	@echo "JSON"
+
+## svc-smoke: Curl a Service by DNS and via PodIP; optional local port-forward
+## Vars:
+##   SVC=<service-name> (required)  NS=default  PORT=80  PATH=/healthz  PF=true|false
+svc-smoke:
+	@[ -n "${SVC}" ] || (echo "SVC=<service-name> is required, e.g. SVC=insight-agent" && exit 1)
+	@NS="${NS:-default}"; \
+	PORT="${PORT:-80}"; \
+	PATH_PFX="$${PATH:-/healthz}"; \
+	echo "==> Service overview"; \
+	kubectl -n "$$NS" get svc "${SVC}" -o wide || exit 1; \
+	echo; \
+	echo "==> Endpoints"; \
+	kubectl -n "$$NS" get endpoints "${SVC}" -o wide || true; \
+	kubectl -n "$$NS" get endpointslices -l kubernetes.io/service-name="${SVC}" || true; \
+	echo; \
+	echo "==> In-cluster DNS curl"; \
+	kubectl run curl-$$RANDOM --rm -i --restart=Never --image=curlimages/curl -- \
+	  curl -fsS "http://${SVC}.${NS}.svc.cluster.local:$${PORT}$${PATH_PFX}" || { echo "DNS curl failed"; exit 2; }; \
+	echo; \
+	echo "==> PodIP curl (bypass Service)"; \
+	POD=$$(kubectl -n "$$NS" get pod -l "app=${SVC}" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true); \
+	if [ -n "$$POD" ]; then \
+	  IP=$$(kubectl -n "$$NS" get pod "$$POD" -o jsonpath='{.status.podIP}'); \
+	  kubectl run curl-$$RANDOM --rm -i --restart=Never --image=curlimages/curl -- \
+	    curl -fsS "http://$${IP}:$${PORT}$${PATH_PFX}" || { echo "PodIP curl failed"; exit 3; }; \
+	else \
+	  echo "No pod found with label app=${SVC}; skipping PodIP curl."; \
+	fi; \
+	if [ "$${PF:-}" = "true" ]; then \
+	  echo; echo "==> Local port-forward + curl localhost"; \
+	  kubectl -n "$$NS" port-forward "svc/${SVC}" 18080:$${PORT} >/tmp/pf.$${SVC}.log 2>&1 & PF_PID=$$!; \
+	  sleep 2; \
+	  (curl -fsS "http://localhost:18080$${PATH_PFX}" && echo "OK") || { kill $$PF_PID || true; exit 4; }; \
+	  kill $$PF_PID || true; \
+	fi; \
+	echo; echo "✅ svc-smoke passed for ${SVC} (ns=$$NS)"
+
 .PHONY: runbook
 runbook: ## Print Judge-Friendly Quickstart from runbook
 	@awk '/## 🎯 Judge-Friendly Quickstart/,/^---/' HACKATHON-DEMO-RUNBOOK.md \
