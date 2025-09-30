@@ -1,0 +1,28 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: budget-coach-ui
+  labels: { app: budget-coach-ui, application: personal-financial-advisor, tier: ui }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: budget-coach-ui, application: personal-financial-advisor, tier: ui }
+  template:
+    metadata:
+      labels: { app: budget-coach-ui, application: personal-financial-advisor, tier: ui }
+    spec:
+      containers:
+        - name: ui
+          image: REPLACE_ME_UI_IMAGE
+          ports: [{ containerPort: 8501, name: http }]
+          env:
+            - name: INSIGHT_AGENT_URL
+              value: "http://insight-agent.default.svc.cluster.local"
+            - name: ACCOUNT
+              value: "1011226111"
+            - name: WINDOW_DAYS
+              value: "30"
+          readinessProbe:
+            httpGet: { path: "/", port: 8501 }
+            initialDelaySeconds: 5
+            periodSeconds: 5

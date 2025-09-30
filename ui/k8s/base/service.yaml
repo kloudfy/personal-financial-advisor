@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: budget-coach-ui
+  labels: { app: budget-coach-ui, application: personal-financial-advisor, tier: ui }
+spec:
+  type: ClusterIP
+  selector: { app: budget-coach-ui, application: personal-financial-advisor, tier: ui }
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8501
