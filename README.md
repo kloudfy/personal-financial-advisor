@@ -32,8 +32,77 @@ Open the Streamlit URL, set **Account ID** and **Window (days)** if needed, then
 
 ---
 
-(additional project docs continue below…)
+## 💸 Budget Coach UI (Streamlit)
 
+This UI provides a judge-friendly view of the `/budget/coach` API over live Bank of Anthos microservices.
+
+### Run locally
+
+```bash
+# 1. Build & deploy the insight-agent with Vertex backend
+make deploy-insight-agent-vertex INS_TAG=vertex
+
+# 2. Enable fast mode + cache and restart the deployment
+kubectl set env deploy/insight-agent INSIGHT_FAST_MODE=true INSIGHT_CACHE_TTL_SEC=300
+kubectl rollout restart deploy/insight-agent
+kubectl -n default rollout status deploy/insight-agent
+
+# 3. Launch the UI (Streamlit)
+make run-ui
+```
+
+Open the UI at:
+
+* Local dev: [http://localhost:8501](http://localhost:8501)
+* In-cluster (if Service/Ingress is enabled): `http://<cluster-ip-or-dns>/`
+
+---
+
+### What you’ll see
+
+* **Header:** shows `Account`, `Window`, **Current Balance** (from Bank of Anthos `userservice`), and **Latest Txn** date.
+* **Summary:** one-paragraph overview of spending/income.
+* **Budget Buckets:** top 4-6 categories with percentage and monthly estimate.
+* **Tips:** 3-5 short, actionable recommendations.
+* **Raw JSON:** the underlying API response.
+
+---
+
+### Fast-mode (default)
+
+* Compacts transactions (caps rows, aggregates top parties, totals).
+* Requests **strict JSON** from Gemini via schema guidance.
+* Normalizes bucket percentages to ≈100.
+* Adds in-pod TTL cache (default 180s). Repeated runs on the same account/window return instantly.
+
+You can tune these at runtime:
+
+```bash
+kubectl set env deploy/insight-agent INSIGHT_FAST_MODE=true INSIGHT_CACHE_TTL_SEC=180
+```
+
+---
+
+### Quick smokes
+
+```bash
+# Backend smoke (transactions via MCP → insight-agent)
+make budget-smoke
+
+# UI smoke (curl root + mock /budget/coach POST)
+make ui-smoke
+```
+
+---
+
+### Notes
+
+* The Personal Financial Advisor (PFA) stack fetches transactions via **MCP → transactionhistory**.
+* **Cloud SQL** is used by Bank of Anthos’s `transactionhistory` service under the hood — PFA does not connect to it directly.
+
+---
+
+(additional project docs continue below…)
 > **Fork notice:** This project is a fork of Google’s
 > [Bank of Anthos](https://github.com/GoogleCloudPlatform/bank-of-anthos).
 > We extend it with an agent-powered **Personal Financial Advisor** layer (MCP server + monitoring/insight agent)

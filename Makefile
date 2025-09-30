@@ -109,7 +109,7 @@ build-agw:
 	docker buildx build --platform linux/amd64,linux/arm64 \
 	-t $(REG)/agent-gateway:$(AGW_TAG) -f src/ai/agent-gateway/Dockerfile . --push
 
-.PHONY: demo demo-clean dev-apply dev-smoke dev-status set-images show-images show-pins build-mcp build-agw e2e-auth-smoke
+.PHONY: demo demo-clean dev-apply dev-smoke dev-status set-images show-images show-pins build-mcp build-agw e2e-auth-smoke ui-smoke
 
 # --- Authenticated E2E smoke (userservice -> txhistory via mcp/agent-gateway)
 e2e-auth-smoke:
@@ -206,9 +206,14 @@ ui-demo:
 	python3 -m venv .venv && . .venv/bin/activate && pip install -r ui/requirements.txt && streamlit run ui/budget_coach_app.py
 
 
-###############################################################################
-# Docs / Helpers
-###############################################################################
+
+ui-smoke: ## Curl UI root and mock coach POST
+	@echo "==> Hitting Streamlit UI /"
+	curl -sS http://localhost:8501/ | head -n 20 | sed -e 's/<[^>]*>//g' | head -n 10
+	@echo "==> Mock POST to /budget/coach (cluster svc)"
+	kubectl run coach-smoke --rm -i --restart=Never --image=curlimages/curl -- \
+	  sh -lc 'echo "{\"transactions\":[{\"date\":\"2025-09-30\",\"label\":\"Test\",\"amount\":-12.34},{\"date\":\"2025-09-30\",\"label\":\"Pay\",\"amount\":+1000}]}" \
+	    | curl -sS -H "Content-Type: application/json" -d @ui-budget-coach.patch http://insight-agent.default.svc.cluster.local/budget/coach | head -c 800 && echo'
 .PHONY: runbook
 runbook: ## Print Judge-Friendly Quickstart from runbook
 	@awk '/## 🎯 Judge-Friendly Quickstart/,/^---/' HACKATHON-DEMO-RUNBOOK.md \

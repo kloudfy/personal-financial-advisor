@@ -1,21 +1,16 @@
-import os
-import json
-import time
+import os, json, re, time, unicodedata
 import requests
+import pandas as pd
 import streamlit as st
 
-# --- Config (override via env vars if you port-forward to different ports) ---
-USERSVC = os.getenv("USERSERVICE_URI", "http://localhost:8081")
-MCPSVC  = os.getenv("MCP_SERVER_URI",  "http://localhost:8082")
-INSIGHT = os.getenv("INSIGHT_URI",     "http://localhost:8083")
+INSIGHT_AGENT_URL = os.getenv("INSIGHT_AGENT_URL", "http://insight-agent.default.svc.cluster.local")
+ACCOUNT = os.getenv("ACCOUNT", "1011226111")
+WINDOW_DAYS = int(os.getenv("WINDOW_DAYS", "30"))
 
-DEFAULT_ACCOUNT = os.getenv("DEMO_ACCOUNT", "1011226111")
-DEFAULT_WINDOW  = int(os.getenv("DEMO_WINDOW_DAYS", "30"))
+st.set_page_config(page_title="Budget Coach", page_icon="💸", layout="wide")
 
-st.set_page_config(page_title="PFA • Budget Coach", page_icon="💸", layout="centered")
-
-st.title("💸 PFA — Budget Coach (Vertex Gemini)")
-st.caption("Judge-friendly UI to demonstrate /budget/coach over the live microservices")
+st.title("Budget Coach")
+st.caption("Flow: userservice → mcp-server → insight-agent (/budget/coach) → Vertex AI Gemini")
 
 with st.expander("Configuration", expanded=False):
     USERSVC = st.text_input("Userservice URL", USERSVC)
@@ -79,7 +74,36 @@ def render_result(result):
     if tips:
         st.subheader("Tips")
         for t in tips:
-            st.write(f"• {t}")
+def clean_text(s: str) -> str:
+    if not isinstance(s, str): return s
+    s = unicodedata.normalize("NFKC", s)
+    s = re.sub(r"\s+", " ", s)
+    return s.strip()
+
+def _fetch_jwt():
+    r = requests.get(
+        "http://userservice.default.svc.cluster.local:8080/login",
+        params={"username": "testuser", "password": "bankofanthos"},
+        timeout=20,
+    )
+    r.raise_for_status()
+    return r.json().get("token")
+
+def _fetch_balance(acct: str, jwt: str) -> float:
+    url = f"http://userservice.default.svc.cluster.local:8080/accounts/{acct}/balance"
+    r = requests.get(url, headers={"Authorization": f"Bearer {jwt}"},
+        timeout=20,
+    )
+    r.raise_for_status()
+    return float(r.json().get("balance", 0.0))
+
+def _latest_txn_date(txns):
+    try:
+        return max((t.get("date","") for t in txns if t.get("date")),
+            default="—"
+        )
+    except Exception:
+        return "—"
 
 if run_btn:
     try:
@@ -91,12 +115,19 @@ if run_btn:
             t0 = time.time()
             result = call_budget_coach(txns)
             t1 = time.time()
+        jwt = _fetch_jwt()
+        balance = _fetch_balance(ACCOUNT, jwt)
+        st.info(
+            f"**Account:** `{ACCOUNT}` · **Window:** {WINDOW_DAYS} days · "
+            f"**Current balance:** ${balance:,.2f} · **Latest txn:** {_latest_txn_date(txns)}"
+        )
         st.success(f"Done in {t1 - t0:.1f}s")
-        render_result(result)
+        render_result(result, time.time() - t0) # Pass elapsed time to render_result
         with st.expander("Raw JSON", expanded=False):
             st.code(json.dumps(result, indent=2))
+    except requests.HTTPError as e:
+        st.error(f"HTTP error: {e.response.status_code} {e.response.text[:300]}")
     except Exception as e:
-        st.error(f"Error: {e}")
-        st.stop()
+        st.exception(e)
 
 st.caption("Flow: userservice → mcp-server → insight-agent (/budget/coach) → Vertex AI Gemini")
