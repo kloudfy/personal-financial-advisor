@@ -1,0 +1,13 @@
+FROM python:3.11-slim
+
+# Install only what's needed for smoke check
+RUN pip install --no-cache-dir --upgrade \
+    google-cloud-aiplatform \
+    "vertexai>=1.66.0"
+
+# Copy smoke test script
+COPY scripts/vertex_smoke.py /app/vertex_smoke.py
+
+WORKDIR /app
+CMD ["python", "/app/vertex_smoke.py"]
+
