@@ -1,0 +1,63 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: budget-coach-ui
+  namespace: default
+  labels:
+    app: budget-coach-ui
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: budget-coach-ui
+  template:
+    metadata:
+      labels:
+        app: budget-coach-ui
+    spec:
+      containers:
+      - name: ui
+        image: us-central1-docker.pkg.dev/gke-hackathon-469600/bank-of-anthos-repo/budget-coach-ui:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8501
+        env:
+        - name: USERSERVICE_URI
+          value: "http://userservice.default.svc.cluster.local:8080"
+        - name: MCP_SERVER_URI
+          value: "http://mcp-server.default.svc.cluster.local:80"
+        - name: INSIGHT_URI
+          value: "http://insight-agent.default.svc.cluster.local:80/api"
+        # Optional but safe if a corporate proxy is present:
+        # - name: NO_PROXY
+        #   value: ".svc,.cluster.local,10.0.0.0/8,34.0.0.0/8"
+        readinessProbe:
+          httpGet:
+            path: /_stcore/health
+            port: 8501
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /_stcore/health
+            port: 8501
+          initialDelaySeconds: 15
+          periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: budget-coach-ui
+  namespace: default
+  labels:
+    app: budget-coach-ui
+  annotations:
+    cloud.google.com/neg: '{"ingress": true}'
+spec:
+  selector:
+    app: budget-coach-ui
+  ports:
+  - name: http
+    port: 80
+    targetPort: 8501
+  type: ClusterIP

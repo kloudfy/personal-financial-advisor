@@ -32,9 +32,9 @@ spec:
               value: http://mcp-server:8080
           readinessProbe:
             httpGet:
-              path: /healthz
+              path: /api/healthz
               port: 8080
-            initialDelaySeconds: 10
+            initialDelaySeconds: 30
             periodSeconds: 5
             timeoutSeconds: 5
             failureThreshold: 6

@@ -79,7 +79,7 @@ def _compact_transactions(transactions, max_rows=300):
           for t in tx]
   return {"features": summary, "sample": mini}
 
-@app.get("/healthz")
+@app.get("/api/healthz")
 def healthz():
     return "ok", 200
 
@@ -203,7 +203,7 @@ def _adk_generate_budget(transactions):
     "tips": obj.get("unusual_transactions") or []
   }
 
-@app.post("/analyze")
+@app.post("/api/analyze")
 def analyze():
   data = request.get_json(silent=True)
   if not data:
@@ -231,7 +231,7 @@ def analyze():
     log.exception("Analyze failed")
     return jsonify(error=str(e)), 502
 
-@app.post("/budget/coach")
+@app.post("/api/budget/coach")
 def budget_coach():
   """
   Body: either a raw JSON list of transactions or {"transactions":[...]}.

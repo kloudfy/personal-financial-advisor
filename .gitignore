@@ -3,6 +3,7 @@
 *.key
 *.pub
 target/
+.gitignore
 .settings
 .project
 .classpath
@@ -235,6 +236,11 @@ verify_jwt.py
 /sa-key.json
 /Comprehensive Analysis with GCLI.md
 /gemini_chat_history.md
+/p0-test.py
+/dns-test.py
+/tcp-test.py
+/ui-budget-coach.patch
+/vertex-smoke-full.patch
 *.key
 *.key.pub
 README.bak
