@@ -1,0 +1,19 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+- ../../base
+
+# Reuse the same hardening patches
+patches:
+- path: patch-env.yaml
+- path: patch-rolling.yaml
+
+    # IMPORTANT: set at apply time: UI_IMAGE_DIGEST=sha256:...
+images:
+- digest: sha256:059630b47ebdb799bf32c8f9d18b7d1c0e1dc7c7ef50e2726f3ce391ec2a873f
+  name: REPLACE_ME_UI_IMAGE
+  newName: us-central1-docker.pkg.dev/gke-hackathon-469600/bank-of-anthos-repo/budget-coach-ui
+
+patchesStrategicMerge:
+  - patch-env.yaml
