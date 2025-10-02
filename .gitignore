@@ -234,7 +234,7 @@ verify_jwt.py
 /verify_jwt.py
 /iam-policy.json
 /sa-key.json
-/Comprehensive Analysis with GCLI.md
+/comprehensive_analysis_with_gemini_cli.md
 /gemini_chat_history.md
 /p0-test.py
 /dns-test.py
