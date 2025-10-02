@@ -245,3 +245,4 @@ verify_jwt.py
 *.key.pub
 README.bak
 
+docs/notes/
