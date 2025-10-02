@@ -196,7 +196,7 @@ budget-smoke: ## One-off pod that fetches txns via MCP and hits /budget/coach on
 # ------------------------------------------------------------
 # UI helpers (local demo)
 # ------------------------------------------------------------
-.PHONY: pfw-usersvc pfw-mcp pfw-insight ui-demo
+.PHONY: pfw-usersvc pfw-mcp pfw-insight ui-demo ui-demo-env ui-local-smoke
 
 pfw-usersvc:
 	kubectl -n default port-forward deploy/userservice 8081:8080
@@ -207,9 +207,28 @@ pfw-mcp:
 pfw-insight:
 	kubectl -n default port-forward svc/insight-agent 8083:80
 
-ui-demo:
-	python3 -m venv .venv && . .venv/bin/activate && pip install -r ui/requirements.txt && streamlit run ui/budget_coach_app.py
+# Prints the env the local UI expects (Vertex build uses /api prefix)
+ui-demo-env:
+	@echo "export USERSERVICE_URI=http://localhost:8081"
+	@echo "export MCP_SERVER_URI=http://localhost:8082"
+	@echo "export INSIGHT_URI=http://localhost:8083/api   # legacy build would be http://localhost:8083"
 
+# Launches Streamlit with the correct localhost env wired in
+ui-demo:
+	python3 -m venv .venv && . .venv/bin/activate && pip install -r ui/requirements.txt && \
+	USERSERVICE_URI=http://localhost:8081 \
+	MCP_SERVER_URI=http://localhost:8082 \
+	INSIGHT_URI=http://localhost:8083/api \
+	streamlit run ui/budget_coach_app.py
+
+# Quick local sanity: Streamlit root and agent POST should respond
+ui-local-smoke:
+	@echo "==> Streamlit root (localhost:8501)"; \
+	  (curl -fsSI http://localhost:8501/ | head -n 1) || { echo "UI not up yet"; exit 1; }; \
+	echo; echo "==> Agent /api/budget/coach (should 400 with minimal body)"; \
+	  curl -sS -D- -X POST -H 'Content-Type: application/json' \
+	    -d '{"transactions":[]}' http://localhost:8083/api/budget/coach | head -n 20
+        
 # ======================= SMOKE TARGETS (safe to append) =======================
 
 .PHONY: ui-smoke svc-smoke
@@ -314,16 +333,16 @@ ui-dev-prune:
 	@kubectl get rs -l app=budget-coach-ui \
 	 -o jsonpath='{range .items[*]}{.metadata.name}{"=>"}{.spec.template.spec.containers[0].image}{"\n"}{end}'
 	@echo "If any RS shows a wrong image, delete it: kubectl delete rs <name>"
-
+    
 ui-dev-smoke:
 	@echo "==> UI smoke: root 200 and agent /api/budget/coach reachable"
 	@kubectl run curl-ui --rm -it --restart=Never --image=curlimages/curl:8.7.1 -- \
-	  sh -lc "set -e; \
-	  AG=http://insight-agent.default.svc.cluster.local/api; \
-	  echo 'POST $$AG/budget/coach (should 400 with message if body minimal)'; \
-	  curl -sS -D- -X POST -H 'Content-Type: application/json' \
-	    -d '{\"account_id\":\"1011226111\",\"window_days\":30}' \
-	    $$AG/budget/coach | head -n 20"
+	  sh -lc 'set -e; \
+	    AG="http://insight-agent.default.svc.cluster.local/api"; \
+	    echo "POST $$AG/budget/coach"; \
+	    curl -sS -w "\nHTTP %{http_code}\n" -D- -X POST -H "Content-Type: application/json" \
+	      -d "{\"transactions\":[]}" \
+	      "$$AG/budget/coach" | head -n 40'
 
 ui-judges-apply:
 	@echo "==> Apply UI judges overlay (LB)"
@@ -361,22 +380,24 @@ ui-prod-digest-latest:
 ui-prod-set-digest:
 	$(call require_project)
 	@if [ -z "$$REG" ] || [ -z "$$PROJECT" ]; then \
-	  echo "REG and PROJECT must be set in the environment"; exit 1; fi
-	@if [ -z "$$UI_IMAGE_DIGEST" ]; then \
-	  if [ -z "$$UI_TAG" ]; then echo "Set UI_TAG (e.g. v0.1.0) or UI_IMAGE_DIGEST"; exit 1; fi; \
-	  echo "==> Resolving digest for $$REG/budget-coach-ui:$$UI_TAG"; \
-	  export UI_IMAGE_DIGEST=$$(gcloud artifacts docker images describe \
-	    "$$REG/budget-coach-ui:$$UI_TAG" --project "$$PROJECT" \
-	    --format='value(image_summary.digest)'); \
-	  if [ -z "$$UI_IMAGE_DIGEST" ]; then echo "Digest not found for tag $$UI_TAG"; exit 1; fi; \
-	  echo "==> Digest: $$UI_IMAGE_DIGEST"; \
-	  (cd $(UI_PROD) && kustomize edit set image REPLACE_ME_UI_IMAGE=$$REG/budget-coach-ui@$$UI_IMAGE_DIGEST); \
-	else \
-	  echo "==> Using provided digest: $$UI_IMAGE_DIGEST"; \
-	  (cd $(UI_PROD) && kustomize edit set image REPLACE_ME_UI_IMAGE=$$REG/budget-coach-ui@$$UI_IMAGE_DIGEST); \
+		echo "REG and PROJECT must be set in the environment"; exit 1; \
 	fi
-	@echo "==> Production images block:"
-	@sed -n '/^images:/,$$p' $(UI_PROD)/kustomization.yaml
+	@if [ -n "$$UI_IMAGE_DIGEST" ]; then \
+		echo "==> Using provided digest: $$UI_IMAGE_DIGEST"; \
+	else \
+		if [ -z "$$UI_TAG" ]; then echo "Set UI_TAG (e.g. v0.1.0) or UI_IMAGE_DIGEST"; exit 1; fi; \
+		echo "==> Resolving digest for $$REG/budget-coach-ui:$$UI_TAG"; \
+		UI_IMAGE_DIGEST=$$(gcloud artifacts docker images describe \
+			"$$REG/budget-coach-ui:$$UI_TAG" --project "$$PROJECT" \
+			--format='value(image_summary.digest)'); \
+		if [ -z "$$UI_IMAGE_DIGEST" ]; then echo "Digest not found for tag $$UI_TAG"; exit 1; fi; \
+		echo "==> Digest: $$UI_IMAGE_DIGEST"; \
+	fi
+	@if echo "$$UI_IMAGE_DIGEST" | grep -Eq '^sha256:[0-9a-f]{64}$$'; then :; else \
+		echo "❌ UI_IMAGE_DIGEST is invalid. Expected sha256:<64-hex>"; exit 2; \
+	fi
+	@( cd $(UI_PROD) && kustomize edit set image REPLACE_ME_UI_IMAGE=$$REG/budget-coach-ui@$$UI_IMAGE_DIGEST )
+	@echo "==> Production images block:" ; sed -n '/^images:/,$$p' $(UI_PROD)/kustomization.yaml
 
 ui-prod-apply:
 	@echo "==> Apply PROD overlay (digest-pinned)"
