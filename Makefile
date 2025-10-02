@@ -1,8 +1,3 @@
----
-
-# Makefile
-
-```make
 .PHONY: demo demo-clean dev-apply dev-smoke dev-status set-images
 
 # --- Default target ---
@@ -78,7 +73,7 @@ dev-config:
 	  --dry-run=client -o yaml | kubectl apply -f -
 
 dev-apply: dev-config
-    $(call require_project)
+	$(call require_project)
 	@echo "==> Applying dev overlays with pinned images..."
 	kustomize build $(MCP_DEV_OVERLAY) | kubectl apply -n $(NS) -f -
 	kustomize build $(AG_DEV_OVERLAY)  | kubectl apply -n $(NS) -f -
@@ -142,7 +137,7 @@ vertex-enable: ## Enable Vertex AI API
 ## Creates a GSA and binds it for WI to the KSA `insight-agent` in default NS.
 ## Also grants minimal Vertex permissions.
 vertex-wi-bootstrap: ## Bootstrap Workload Identity for insight-agent (dev)
-    $(call require_project)
+	$(call require_project)
 	@[ -n "${PROJECT}" ] || (echo "PROJECT is required"; exit 1)
 	gcloud iam service-accounts create insight-agent \
 	  --project ${PROJECT} \
@@ -164,7 +159,7 @@ vertex-wi-bootstrap: ## Bootstrap Workload Identity for insight-agent (dev)
 	kubectl -n default rollout status deploy/insight-agent
 
 deploy-insight-agent-vertex: ## Build/push (if needed) and deploy insight-agent in Vertex mode
-    $(call require_project)
+	$(call require_project)
 	@[ -n "${PROJECT}" ] || (echo "PROJECT is required"; exit 1)
 	@[ -n "${REPO}" ] || (echo "REPO is required"; exit 1)
 	@[ -n "${REG}" ] || (echo "REG is required"; exit 1)
@@ -353,7 +348,7 @@ ui-judges-logs:
 # Compute latest digest for a given tag (defaults: UI_TAG=v0.1.0)
 # Usage: make ui-prod-digest-latest [UI_TAG=v0.1.0]
 ui-prod-digest-latest:
-    $(call require_project)
+	$(call require_project)
 	@[ -n "$$REG" ] || { echo "Set REG, e.g. REG=us-central1-docker.pkg.dev/$(PROJECT)/bank-of-anthos-repo"; exit 1; }
 	@UI_TAG=$${UI_TAG:-v0.1.0}; \
 	echo "Resolving digest for $$REG/budget-coach-ui:$$UI_TAG ..."; \
@@ -364,7 +359,7 @@ ui-prod-digest-latest:
 
 # Bake digest by cd'ing into the overlay dir (works with all kustomize versions)
 ui-prod-set-digest:
-    $(call require_project)
+	$(call require_project)
 	@if [ -z "$$REG" ] || [ -z "$$PROJECT" ]; then \
 	  echo "REG and PROJECT must be set in the environment"; exit 1; fi
 	@if [ -z "$$UI_IMAGE_DIGEST" ]; then \
