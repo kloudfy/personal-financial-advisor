@@ -10,7 +10,7 @@ resources:
 images:
 - name: insight-agent
   newName: us-central1-docker.pkg.dev/gke-hackathon-469600/bank-of-anthos-repo/insight-agent
-  newTag: v0.2.0
+  newTag: v0.2.2
 
 patches:
 - path: patch-dev-env.yaml

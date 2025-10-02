@@ -4,12 +4,12 @@ kind: Kustomization
 namespace: default
 
 resources:
-  - ../../base
+- ../../base
 
 images:
-  - name: insight-agent
-    newName: us-central1-docker.pkg.dev/gke-hackathon-469600/bank-of-anthos-repo/insight-agent
-    newTag: stable
+- digest: sha256:dd7aff9291f417137ebf7ec69611d46a0a8a5c9eaffb55512d872d2229141a91
+  name: insight-agent
+  newName: us-central1-docker.pkg.dev/gke-hackathon-469600/bank-of-anthos-repo/insight-agent
 
 patches:
-  - path: patch-prod.yaml
+- path: patch-prod.yaml
