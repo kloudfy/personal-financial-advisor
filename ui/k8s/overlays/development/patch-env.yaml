@@ -1,0 +1,16 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: budget-coach-ui
+spec:
+  template:
+    spec:
+      containers:
+      - name: ui
+        env:
+        - name: INSIGHT
+          value: http://insight-agent.default.svc.cluster.local:80/api
+        - name: INSIGHT_URI
+          value: http://insight-agent.default.svc.cluster.local:80/api
+        - name: INSIGHT_AGENT_URL
+          value: http://insight-agent.default.svc.cluster.local/api

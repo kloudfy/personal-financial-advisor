@@ -1,0 +1,25 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: budget-coach-ui
+spec:
+  template:
+    spec:
+      containers:
+      - name: ui
+        env:
+        - name: USERSVC
+          value: http://userservice.default.svc.cluster.local:8080
+        - name: MCPSVC
+          value: http://mcp-server.default.svc.cluster.local:80
+        # INSIGHT points at the /api base (your working config)
+        - name: INSIGHT
+          value: http://insight-agent.default.svc.cluster.local:80/api
+        - name: INSIGHT_URI
+          value: http://insight-agent.default.svc.cluster.local:80/api
+        - name: INSIGHT_AGENT_URL
+          value: http://insight-agent.default.svc.cluster.local/api
+        - name: ACCOUNT
+          value: "1011226111"
+        - name: WINDOW_DAYS
+          value: "30"

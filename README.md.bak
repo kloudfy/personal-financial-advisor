@@ -402,7 +402,7 @@ The app is fully functional; all smokes pass. Highlights:
 ## Architecture (quick callouts)
 
 > Budget Coach UI (Streamlit) consumes insight-agent /budget/coach and is exposed either locally (port-forward) or via LB for judges.
- For Vertex builds, the UI points to `/api/budget/coach` by exporting `INSIGHT=http://…/api`.
+ For Vertex builds, the UI points to `/api/budget/coach` by exporting `INSIGHT_URI=http://…/api`.
 
 **Gateway & MCP path**
 
