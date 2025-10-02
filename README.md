@@ -93,7 +93,7 @@ make ui-smoke
 
 ## 🌐 Judges Demo: External IP (UI)
 
-If you’ve created the optional external LB for the UI (see `budget-coach-ui-lb.yaml`), you can hand judges a URL:
+If you’ve created the optional external LB for the UI (use `make ui-judges-apply`), you can hand judges a URL:
 
 ```bash
 kubectl get svc budget-coach-ui-lb -o jsonpath='{.status.loadBalancer.ingress[0].ip}{"\n"}'
@@ -101,11 +101,7 @@ kubectl get svc budget-coach-ui-lb -o jsonpath='{.status.loadBalancer.ingress[0]
 (If it outputs nothing, the LoadBalancer may still be provisioning; re-run in a moment.)
 
 
-Visit:
-
-```
-http://EXTERNAL_IP
-```
+Visit the External IP printed by `make ui-judges-ip`.
 
 *(Example: [http://34.44.9.68](http://34.44.9.68))*
 
