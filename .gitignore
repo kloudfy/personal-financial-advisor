@@ -248,3 +248,4 @@ README.bak
 docs/notes/
 docs/notes/*
 !docs/notes/README.md
+*.bak
