@@ -8,6 +8,7 @@ resources:
 patches:
 - path: patch-env.yaml
 - path: patch-rolling.yaml
+- path: patch-env.yaml
 
     # IMPORTANT: set at apply time: UI_IMAGE_DIGEST=sha256:...
 images:
@@ -15,5 +16,3 @@ images:
   name: REPLACE_ME_UI_IMAGE
   newName: us-central1-docker.pkg.dev/gke-hackathon-469600/bank-of-anthos-repo/budget-coach-ui
 
-patchesStrategicMerge:
-  - patch-env.yaml

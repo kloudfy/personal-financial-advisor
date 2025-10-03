@@ -15,10 +15,10 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
-  - ../../base
-  - frontend-ingress.yaml
+- ../../base
+- frontend-ingress.yaml
 components:
-  - ../../../../components/production
-  - ../../../../components/frontend
-  - ../../../../components/frontend-fwi
-  - ../../../../components/service-cluster-ip
+- ../../../../components/production
+- ../../../../components/frontend
+- ../../../../components/frontend-fwi
+- ../../../../components/service-cluster-ip

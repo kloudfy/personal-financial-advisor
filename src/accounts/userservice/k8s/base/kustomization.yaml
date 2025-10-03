@@ -15,11 +15,11 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
-  - userservice.yaml
+- userservice.yaml
 components:
-  - ../../../components/accounts
-  - ../../../../components/backend-service
+- ../../../components/accounts
+- ../../../../components/backend-service
 patches:
-  - target:
-      kind: Deployment
-    path: add-private-key-volume.yaml
+- path: add-private-key-volume.yaml
+  target:
+    kind: Deployment

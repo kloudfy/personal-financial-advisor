@@ -7,21 +7,26 @@ spec:
     spec:
       containers:
         - name: mcp-server
+          # You can keep startupProbe as TCP (fast) or switch to HTTP; either is fine.
           startupProbe:
-            tcpSocket:
+            httpGet:
+              path: /healthz
               port: 8080
             failureThreshold: 30
             periodSeconds: 3
             timeoutSeconds: 2
           readinessProbe:
-            tcpSocket:
+            httpGet:
+              path: /healthz
               port: 8080
-            failureThreshold: 3
             periodSeconds: 5
             timeoutSeconds: 2
+            failureThreshold: 6
           livenessProbe:
-            tcpSocket:
+            httpGet:
+              path: /healthz
               port: 8080
-            failureThreshold: 3
+            initialDelaySeconds: 5
             periodSeconds: 10
             timeoutSeconds: 2
+            failureThreshold: 3

@@ -58,6 +58,8 @@ export NS      ?= default
 # --- Paths ---
 MCP_DEV_OVERLAY := src/ai/mcp-server/k8s/overlays/development
 AG_DEV_OVERLAY  := src/ai/agent-gateway/k8s/overlays/development
+MCP_PROD_OVERLAY := src/ai/mcp-server/k8s/overlays/production
+AG_PROD_OVERLAY  := src/ai/agent-gateway/k8s/overlays/production
 
 # Simple guard (use in targets with: $(call require_project))
 require_project = @if [ "$(PROJECT)" = "<PROJECT-ID>" ] || [ -z "$(PROJECT)" ]; then \
@@ -85,6 +87,7 @@ dev-status:
 	@echo "==> Checking rollout status..."
 	kubectl -n $(NS) rollout status deploy/mcp-server
 	kubectl -n $(NS) rollout status deploy/agent-gateway
+	kubectl -n $(NS) rollout status deploy/insight-agent
 
 dev-smoke:
 	@echo "==> Running smoke tests..."
@@ -100,6 +103,7 @@ show-images:
 	@echo "==> Images currently running in cluster:"
 	kubectl -n $(NS) get deploy mcp-server -o=jsonpath='{.spec.template.spec.containers[0].image}{"\n"}'
 	kubectl -n $(NS) get deploy agent-gateway -o=jsonpath='{.spec.template.spec.containers[0].image}{"\n"}'
+	kubectl -n $(NS) get deploy insight-agent -o=jsonpath='{.spec.template.spec.containers[0].image}{"\n"}'
 
 show-pins:
 	@echo "==> Images currently pinned in dev overlays:"
@@ -109,11 +113,13 @@ show-pins:
 # --- Manual Build/Push (optional) ---
 build-mcp:
 	docker buildx build --platform linux/amd64,linux/arm64 \
-	-t $(REG)/mcp-server:$(MCP_TAG) -f src/ai/mcp-server/Dockerfile . --push
+		-t $(REG)/mcp-server:$(MCP_TAG) \
+		-f src/ai/mcp-server/Dockerfile src/ai/mcp-server --push
 
 build-agw:
 	docker buildx build --platform linux/amd64,linux/arm64 \
-	-t $(REG)/agent-gateway:$(AGW_TAG) -f src/ai/agent-gateway/Dockerfile . --push
+		-t $(REG)/agent-gateway:$(AGW_TAG) \
+		-f src/ai/agent-gateway/Dockerfile src/ai/agent-gateway --push
 
 .PHONY: demo demo-clean dev-apply dev-smoke dev-status set-images show-images show-pins build-mcp build-agw e2e-auth-smoke ui-smoke
 
@@ -188,6 +194,56 @@ vertex-smoke: ## One-off pod calls Vertex Gemini with WI (expects WI bootstrap d
 	chmod +x scripts/vertex-smoke.sh
 	./scripts/vertex-smoke.sh
 
+# -------------------------------
+# Insight Agent helpers (Vertex)
+# -------------------------------
+.PHONY: agent-dev-bump agent-dev-pin agent-prod-digest-latest agent-prod-pin agent-prod-verify
+
+# Quick dev bump to any tag (no commit required)
+# Usage: make agent-dev-bump INS_TAG=v0.2.2   (or dev-YYYYMMDDHHMM)
+agent-dev-bump:
+	@echo "==> Rolling insight-agent to tag: $${INS_TAG:?set INS_TAG}"
+	kubectl -n default set image deploy/insight-agent insight-agent=$${REG:?set REG}/insight-agent:$${INS_TAG}
+	kubectl -n default rollout status deploy/insight-agent
+
+# Pin dev overlay to a semver tag (commit this when it's a milestone)
+# Usage: make agent-dev-pin INS_TAG=v0.2.2
+agent-dev-pin:
+	@echo "==> Pinning dev overlay to: $${REG}/insight-agent:$${INS_TAG:?set INS_TAG}"
+	( cd src/ai/insight-agent/k8s/overlays/development && \
+	  kustomize edit set image insight-agent=$${REG}/insight-agent:$${INS_TAG} )
+	kustomize build src/ai/insight-agent/k8s/overlays/development | kubectl apply -f -
+	kubectl -n default rollout status deploy/insight-agent
+
+# Resolve latest digest for a given tag (prints an export line)
+# Usage: make agent-prod-digest-latest INS_TAG=v0.2.2
+agent-prod-digest-latest:
+	@echo "Resolving digest for $${REG:?set REG}/insight-agent:$${INS_TAG:?set INS_TAG} ..." 1>&2
+	@echo export INS_DIGEST=$$(gcloud artifacts docker images describe \
+	  "$$REG/insight-agent:$$INS_TAG" --project "$${PROJECT:?set PROJECT}" \
+	  --format='value(image_summary.digest)')
+
+# Pin prod overlay to a digest (immutable)
+# Usage: export INS_DIGEST=sha256:... ; make agent-prod-pin
+agent-prod-pin:
+	@echo "==> Pinning PROD to digest: $${INS_DIGEST:?set INS_DIGEST}"
+	( cd src/ai/insight-agent/k8s/overlays/production && \
+	  kustomize edit set image insight-agent=$${REG:?set REG}/insight-agent@$$INS_DIGEST )
+	kustomize build src/ai/insight-agent/k8s/overlays/production | kubectl apply -f -
+	kubectl -n default rollout status deploy/insight-agent
+
+# Quick health + spending smoke
+agent-prod-verify:
+	@echo "==> /api/healthz"
+	kubectl run curl-health --rm -it --restart=Never --image=curlimages/curl -- \
+	  sh -lc 'curl -sS -o /dev/null -w "%{http_code}\n" http://insight-agent:80/api/healthz'
+	@echo "==> /api/spending/analyze (sample body)"
+	kubectl run spend-smoke --rm -it --restart=Never --image=curlimages/curl -- \
+	  sh -lc 'AG="http://insight-agent.default.svc.cluster.local/api"; \
+	    curl -sS -D- -X POST -H "Content-Type: application/json" \
+	      -d "{\"transactions\":[{\"date\":\"2025-09-30\",\"label\":\"Groceries - Market\",\"amount\":-120.50},{\"date\":\"2025-09-29\",\"label\":\"Uber Ride\",\"amount\":-18.25},{\"date\":\"2025-09-28\",\"label\":\"Paycheck\",\"amount\":2000.00}]}" \
+	      "$$AG/spending/analyze" | head -n 40'
+
 .PHONY: budget-smoke
 budget-smoke: ## One-off pod that fetches txns via MCP and hits /budget/coach on insight-agent
 	chmod +x scripts/budget-smoke.sh
@@ -228,7 +284,7 @@ ui-local-smoke:
 	echo; echo "==> Agent /api/budget/coach (should 400 with minimal body)"; \
 	  curl -sS -D- -X POST -H 'Content-Type: application/json' \
 	    -d '{"transactions":[]}' http://localhost:8083/api/budget/coach | head -n 20
-        
+
 # ======================= SMOKE TARGETS (safe to append) =======================
 
 .PHONY: ui-smoke svc-smoke
@@ -333,7 +389,7 @@ ui-dev-prune:
 	@kubectl get rs -l app=budget-coach-ui \
 	 -o jsonpath='{range .items[*]}{.metadata.name}{"=>"}{.spec.template.spec.containers[0].image}{"\n"}{end}'
 	@echo "If any RS shows a wrong image, delete it: kubectl delete rs <name>"
-    
+
 ui-dev-smoke:
 	@echo "==> UI smoke: root 200 and agent /api/budget/coach reachable"
 	@kubectl run curl-ui --rm -it --restart=Never --image=curlimages/curl:8.7.1 -- \
@@ -370,7 +426,7 @@ ui-prod-digest-latest:
 	$(call require_project)
 	@[ -n "$$REG" ] || { echo "Set REG, e.g. REG=us-central1-docker.pkg.dev/$(PROJECT)/bank-of-anthos-repo"; exit 1; }
 	@UI_TAG=$${UI_TAG:-v0.1.0}; \
-	echo "Resolving digest for $$REG/budget-coach-ui:$$UI_TAG ..."; \
+	echo "Resolving digest for $$REG/budget-coach-ui:$$UI_TAG ..." 1>&2; \
 	DIG=$$(gcloud artifacts docker images describe "$$REG/budget-coach-ui:$$UI_TAG" \
 	  --format='value(image_summary.digest)' --project "$(PROJECT)"); \
 	[ -n "$$DIG" ] || { echo "No digest found. Is the tag pushed?"; exit 2; } ; \
@@ -396,7 +452,7 @@ ui-prod-set-digest:
 	@if echo "$$UI_IMAGE_DIGEST" | grep -Eq '^sha256:[0-9a-f]{64}$$'; then :; else \
 		echo "❌ UI_IMAGE_DIGEST is invalid. Expected sha256:<64-hex>"; exit 2; \
 	fi
-	@( cd $(UI_PROD) && kustomize edit set image REPLACE_ME_UI_IMAGE=$$REG/budget-coach-ui@$$UI_IMAGE_DIGEST )
+	@( cd $(UI_PROD) && kustomize edit set image budget-coach-ui=$$REG/budget-coach-ui@$$UI_IMAGE_DIGEST )
 	@echo "==> Production images block:" ; sed -n '/^images:/,$$p' $(UI_PROD)/kustomization.yaml
 
 ui-prod-apply:
@@ -445,3 +501,89 @@ ui-clean:
 	-@kubectl delete svc budget-coach-ui-lb --ignore-not-found
 	-@kubectl delete svc budget-coach-ui --ignore-not-found
 	-@kubectl delete deploy budget-coach-ui --ignore-not-found
+
+###############################################################################
+# MCP & Agent-Gateway helpers (dev/prod parity with insight-agent)
+###############################################################################
+.PHONY: mcp-dev-bump mcp-dev-pin mcp-prod-digest-latest mcp-prod-pin mcp-prod-verify
+.PHONY: agw-dev-bump agw-dev-pin agw-prod-digest-latest agw-prod-pin agw-prod-verify
+
+# ===== mcp-server =====
+
+# Quick dev bump to any tag (no commit required)
+# Usage: make mcp-dev-bump MCP_TAG=v0.2.3
+mcp-dev-bump:
+	@echo "==> Rolling mcp-server to tag: $${MCP_TAG:?set MCP_TAG}"
+	kubectl -n $${NS:-default} set image deploy/mcp-server mcp-server=$${REG:?set REG}/mcp-server:$${MCP_TAG}
+	kubectl -n $${NS:-default} rollout status deploy/mcp-server
+
+# Pin dev overlay to a semver tag (commit this when it's a milestone)
+# Usage: make mcp-dev-pin MCP_TAG=v0.2.3
+mcp-dev-pin:
+	@echo "==> Pinning MCP dev overlay to: $${REG:?set REG}/mcp-server:$${MCP_TAG:?set MCP_TAG}"
+	( cd $(MCP_DEV_OVERLAY) && \
+	  kustomize edit set image mcp-server=$${REG}/mcp-server:$${MCP_TAG} )
+	kustomize build $(MCP_DEV_OVERLAY) | kubectl apply -n $${NS:-default} -f -
+	kubectl -n $${NS:-default} rollout status deploy/mcp-server
+
+# Resolve latest digest for a given tag (prints an export line)
+# Usage: make mcp-prod-digest-latest MCP_TAG=v0.2.3
+mcp-prod-digest-latest:
+	@echo "Resolving digest for $${REG:?set REG}/mcp-server:$${MCP_TAG:?set MCP_TAG} ..." 1>&2
+	@echo export MCP_DIGEST=$$(gcloud artifacts docker images describe "$$REG/mcp-server:$$MCP_TAG" --project "$$PROJECT" --format='value(image_summary.digest)' )
+
+# Pin prod overlay to a digest (immutable)
+# Usage: export MCP_DIGEST=sha256:... ; make mcp-prod-pin
+mcp-prod-pin:
+	@echo "==> Pinning MCP PROD to digest: $${MCP_DIGEST:?set MCP_DIGEST}"
+	( cd src/ai/mcp-server/k8s/overlays/production && \
+	  kustomize edit set image mcp-server=$${REG:?set REG}/mcp-server@$$MCP_DIGEST )
+	kustomize build src/ai/mcp-server/k8s/overlays/production | kubectl apply -n $${NS:-default} -f -
+	kubectl -n $${NS:-default} rollout status deploy/mcp-server
+
+# Quick health verify for mcp-server
+mcp-prod-verify:
+	@echo "==> mcp-server /healthz"
+	kubectl run mcp-curl-$$RANDOM --rm -it --restart=Never --image=curlimages/curl -- \
+	  sh -lc 'curl -sS -o /dev/null -w "%{http_code}\n" \
+	  http://mcp-server.$${NS:-default}.svc.cluster.local:80/healthz'
+
+# ===== agent-gateway =====
+
+# Quick dev bump to any tag (no commit required)
+# Usage: make agw-dev-bump AGW_TAG=v0.2.3
+agw-dev-bump:
+	@echo "==> Rolling agent-gateway to tag: $${AGW_TAG:?set AGW_TAG}"
+	kubectl -n $${NS:-default} set image deploy/agent-gateway agent-gateway=$${REG:?set REG}/agent-gateway:$${AGW_TAG}
+	kubectl -n $${NS:-default} rollout status deploy/agent-gateway
+
+# Pin dev overlay to a semver tag (commit this when it's a milestone)
+# Usage: make agw-dev-pin AGW_TAG=v0.2.3
+agw-dev-pin:
+	@echo "==> Pinning AGW dev overlay to: $${REG:?set REG}/agent-gateway:$${AGW_TAG:?set AGW_TAG}"
+	( cd $(AG_DEV_OVERLAY) && \
+	  kustomize edit set image agent-gateway=$${REG}/agent-gateway:$${AGW_TAG} )
+	kustomize build $(AG_DEV_OVERLAY) | kubectl apply -n $${NS:-default} -f -
+	kubectl -n $${NS:-default} rollout status deploy/agent-gateway
+
+# Resolve latest digest for a given tag (prints an export line)
+# Usage: make agw-prod-digest-latest AGW_TAG=v0.2.3
+agw-prod-digest-latest:
+	@echo "Resolving digest for $${REG:?set REG}/agent-gateway:$${AGW_TAG:?set AGW_TAG} ..." 1>&2
+	@echo export AGW_DIGEST=$$(gcloud artifacts docker images describe "$$REG/agent-gateway:$$AGW_TAG" --project "$$PROJECT" --format='value(image_summary.digest)' )
+
+# Pin prod overlay to a digest (immutable)
+# Usage: export AGW_DIGEST=sha256:... ; make agw-prod-pin
+agw-prod-pin:
+	@echo "==> Pinning AGW PROD to digest: $${AGW_DIGEST:?set AGW_DIGEST}"
+	( cd src/ai/agent-gateway/k8s/overlays/production && \
+	  kustomize edit set image agent-gateway=$${REG:?set REG}/agent-gateway@$$AGW_DIGEST )
+	kustomize build src/ai/agent-gateway/k8s/overlays/production | kubectl apply -n $${NS:-default} -f -
+	kubectl -n $${NS:-default} rollout status deploy/agent-gateway
+
+# Quick health verify for agent-gateway (unauthenticated /healthz only)
+agw-prod-verify:
+	@echo "==> agent-gateway /healthz"
+	kubectl run agw-curl-$$RANDOM --rm -it --restart=Never --image=curlimages/curl -- \
+	  sh -lc 'curl -sS -o /dev/null -w "%{http_code}\n" \
+	  http://agent-gateway.$${NS:-default}.svc.cluster.local:80/healthz'

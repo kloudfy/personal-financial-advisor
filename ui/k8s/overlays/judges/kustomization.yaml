@@ -2,14 +2,14 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 resources:
-  - ../../base
-  - service-lb.yaml
+- ../../base
+- service-lb.yaml
 
 patches:
-  - path: patch-env.yaml
-  - path: patch-rolling.yaml
+- path: patch-env.yaml
+- path: patch-rolling.yaml
 
 images:
-  - name: REPLACE_ME_UI_IMAGE
-    newName: us-central1-docker.pkg.dev/gke-hackathon-469600/bank-of-anthos-repo/budget-coach-ui
-    newTag: v0.1.0
+- name: REPLACE_ME_UI_IMAGE
+  newName: us-central1-docker.pkg.dev/gke-hackathon-469600/bank-of-anthos-repo/budget-coach-ui
+  newTag: v0.1.0

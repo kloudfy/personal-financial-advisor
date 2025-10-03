@@ -1,18 +1,18 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
-  - ../../base
+- ../../base
 images:
-  - name: agent-gateway
-    newName: ${REG}/agent-gateway
-    newTag: ${TAG:-prod}
+- digest: sha256:09bb77821822760d02b1688840587f56291639f8b9d47b573e2c0d1b62e0dbad
+  name: agent-gateway
+  newName: us-central1-docker.pkg.dev/gke-hackathon-469600/bank-of-anthos-repo/agent-gateway
 patches:
-  - path: patch-prod.yaml
+- path: patch-prod.yaml
 configMapGenerator:
-  - name: vertex-config
-    literals:
-      - GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT:-changeme}
-      - VERTEX_LOCATION=${VERTEX_LOCATION:-us-central1}
-      - VERTEX_AGENT_ID=${VERTEX_AGENT_ID:-agent-123}
+- literals:
+  - GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT:-changeme}
+  - VERTEX_LOCATION=${VERTEX_LOCATION:-us-central1}
+  - VERTEX_AGENT_ID=${VERTEX_AGENT_ID:-agent-123}
+  name: vertex-config
 generatorOptions:
   disableNameSuffixHash: true
