@@ -67,7 +67,25 @@ echo "TOKEN_LEN=$${#T}" 1>&2; \
   -d "{\"account_id\":\"1011226111\",\"window_days\":30, \
        \"messages\":[{\"role\":\"user\",\"content\":\"Give me a 30-day budget summary\"}]}" \
   http://agent-gateway.$(NS).svc.cluster.local/chat) \
-| head -c 200; echo'
+| head -c $(SMOKE_HEAD); echo'
 
 smoke-all: smoke-health smoke-auth-token smoke-mcp smoke-coach smoke-chat ## Run full portable smoke suite
 	@echo "✅ smoke-all passed"
+
+# -------- portable smoke aliases & knobs --------
+SMOKE_NS   ?= $(NS)
+SMOKE_HEAD ?= 200
+
+.PHONY: smoke-core smoke-data smoke-e2e smoke-fast
+smoke-core: smoke-health smoke-auth-token
+	@echo "✅ smoke-core passed"
+
+smoke-data: smoke-mcp smoke-coach
+	@echo "✅ smoke-data passed"
+
+smoke-e2e: smoke-chat
+	@echo "✅ smoke-e2e passed"
+
+# quick one to wrap them all (fast)
+smoke-fast: smoke-core smoke-data smoke-e2e
+	@echo "✅ smoke-fast passed"

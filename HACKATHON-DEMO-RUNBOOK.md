@@ -37,6 +37,43 @@ make e2e-auth-smoke
 
 ⸻
 
+🚦 Pre-demo Quick Check (fast)
+
+Use these portable smokes to confirm the core paths without rebuilding anything.
+
+Prereqs
+	•	kubectl is pointed at the target cluster
+	•	Namespace defaults to default (override with NS=<ns> or SMOKE_NS=<ns>)
+	•	Makefile + mk/smoke.mk present
+
+Commands
+
+# Core connectivity: healthz + auth
+make smoke-core
+
+# Data path: MCP returns txns; transform → insight-agent coach
+make smoke-data
+
+# End-to-end: Agent Gateway /chat with JWT (truncated output)
+make smoke-e2e
+
+# One-liner for all three (fast)
+make smoke-fast
+
+# Full original suite
+make smoke-all
+
+# Adjust truncation (bytes) for /chat preview
+make smoke-e2e SMOKE_HEAD=400
+
+Expected signals
+	•	smoke-core prints three OKs and TOKEN_LEN=… (~800–900)
+	•	smoke-data shows sample transactions and a JSON with a non-empty summary
+	•	smoke-e2e prints the first $(SMOKE_HEAD) bytes of /chat JSON (agent + “result”)
+	•	Each target ends with a ✅ confirmation (e.g., ✅ smoke-core passed)
+
+⸻
+
 📖 Full Runbook (Team)
 
 1) Clone the repo
