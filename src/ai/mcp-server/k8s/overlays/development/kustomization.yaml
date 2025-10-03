@@ -9,7 +9,7 @@ resources:
 images:
 - name: mcp-server
   newName: us-central1-docker.pkg.dev/gke-hackathon-469600/bank-of-anthos-repo/mcp-server
-  newTag: v0.1.1
+  newTag: v0.1.2
 
 patches:
 - path: patch-dev.yaml
