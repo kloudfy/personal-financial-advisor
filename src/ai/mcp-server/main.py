@@ -6,6 +6,11 @@ app = Flask(__name__)
 
 TRANSACTION_HISTORY_API_URL = "http://transactionhistory:8080"
 
+@app.get("/healthz")
+def healthz():
+    # No upstream calls, no auth, fast and always-200 if the process is alive.
+    return "ok", 200
+
 @app.route('/transactions/<account_id>', methods=['GET'])
 def get_transactions(account_id):
     """
