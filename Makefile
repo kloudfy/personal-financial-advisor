@@ -272,12 +272,6 @@ ui-demo-env:
 	@echo "export INSIGHT_URI=http://localhost:8083/api   # legacy build would be http://localhost:8083"
 
 # Launches Streamlit with the correct localhost env wired in
-ui-demo:
-	python3 -m venv .venv && . .venv/bin/activate && pip install -r ui/requirements.txt && \
-	USERSERVICE_URI=http://localhost:8081 \
-	MCP_SERVER_URI=http://localhost:8082 \
-	INSIGHT_URI=http://localhost:8083/api \
-	streamlit run ui/budget_coach_app.py
 
 # Quick local sanity: Streamlit root and agent POST should respond
 ui-local-smoke:
@@ -569,3 +563,5 @@ agw-prod-verify:
 -include mk/smoke-e2e.mk
 
 -include mk/smoke-spending.mk
+
+-include mk/ui-demo.mk
