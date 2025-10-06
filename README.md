@@ -32,7 +32,7 @@ make smoke-fast     # bundle of core + data + e2e + fraud
 make demo-check     # alias to smoke-fast
 ```
 **Common env overrides (work with scripts & make)**
-```bsh
+```bash
 * NS (default: default)
 * ACCT (default: 1011226111)
 * WINDOW (default: 30)
