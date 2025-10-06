@@ -249,3 +249,7 @@ docs/notes/
 docs/notes/*
 !docs/notes/README.md
 *.bak
+mk/smoke.mk.bak.*
+mk/*.bak.*
+*.pyc
+__pycache__/

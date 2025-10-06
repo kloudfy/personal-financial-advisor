@@ -567,3 +567,5 @@ agw-prod-verify:
 -include mk/smoke-data.mk
 
 -include mk/smoke-e2e.mk
+
+-include mk/smoke-spending.mk

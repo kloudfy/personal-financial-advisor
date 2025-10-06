@@ -8,14 +8,16 @@ from vertexai import init as vertex_init
 from vertexai.generative_models import GenerativeModel
 
 app = Flask(__name__)
-logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO").upper(),
-                    format="%(asctime)s %(levelname)s %(message)s")
+logging.basicConfig(
+    level=os.environ.get("LOG_LEVEL", "INFO").upper(),
+    format="%(asctime)s %(levelname)s %(message)s"
+)
 log = logging.getLogger("insight-agent")
 
 # ------------------------------------------------------------------------------
 # Config / Init
 # ------------------------------------------------------------------------------
-PROJECT = os.environ.get("GOOGLE_CLOUD_PROJECT")  # may be empty if using default creds
+PROJECT = os.environ.get("GOOGLE_CLOUD_PROJECT")  # may be empty if default creds
 LOCATION = os.environ.get("VERTEX_LOCATION", "us-central1")
 MODEL_ID = os.environ.get("VERTEX_MODEL", "gemini-2.5-pro")
 
@@ -58,7 +60,6 @@ def _to_json_response(text: str):
     """
     cleaned = (text or "").strip()
     cleaned = cleaned.replace("```json", "").replace("```", "").strip()
-    # Try to validate JSON; if it fails, wrap as {"raw": "..."} so clients still get JSON.
     try:
         json.loads(cleaned)
         return cleaned, 200, {"Content-Type": "application/json"}
@@ -93,7 +94,7 @@ Transactions:
         return jsonify(error=str(e)), 500
 
 # ------------------------------------------------------------------------------
-# NEW: Spending Analysis endpoint
+# Spending Analysis endpoint
 # ------------------------------------------------------------------------------
 @app.post("/api/spending/analyze")
 def spending_analyze():
@@ -139,6 +140,97 @@ Transactions:
         log.exception("Gemini spending_analyze failed")
         return jsonify(error=str(e)), 500
 
+# ------------------------------------------------------------------------------
+# NEW: Fraud Detection endpoint (Gemini 2.5 Pro)
+# ------------------------------------------------------------------------------
+@app.post("/api/fraud/detect")
+def fraud_detect():
+    """
+    Input:
+      { "transactions": [...], "account_context": {...} }  OR just [...]
+    Output (strict JSON):
+      {
+        "findings": [
+          {
+            "transaction": {...},
+            "risk_score": 0.0-1.0,
+            "indicators": ["..."],
+            "reason": "...",
+            "recommendation": "..."
+          }
+        ],
+        "overall_risk": "low|medium|high",
+        "summary": "..."
+      }
+    """
+    data = request.get_json(silent=True)
+    txns = _extract_transactions(data)
+    if not txns:
+        return jsonify(error="Expected JSON list or {'transactions': [...]}"), 400
+
+    # Optional fast-path: only escalate to Gemini if statistical outliers exist
+    use_fast_screen = request.args.get("fast", "false").lower() == "true"
+    if use_fast_screen:
+        from statistics import mean, pstdev
+        amounts = [abs(float(t.get("amount", 0))) for t in txns if isinstance(t, dict)]
+        if amounts:
+            mu = mean(amounts)
+            sigma = pstdev(amounts) if len(amounts) > 1 else 0.0
+            # Avoid zero sigma: use + 3*max(sigma, 1e-9)
+            anomalies = [
+                t for t in txns
+                if abs(float(t.get("amount", 0))) > mu + 3 * (sigma if sigma > 1e-9 else 1e-9)
+            ]
+            if not anomalies:
+                return jsonify({
+                    "findings": [],
+                    "overall_risk": "low",
+                    "summary": "No statistical anomalies detected in transaction amounts."
+                }), 200
+            txns = anomalies
+
+    context = data.get("account_context", {}) if isinstance(data, dict) else {}
+
+    prompt = f"""
+You are a fraud detection analyst for a personal finance app.
+
+Transactions to analyze:
+{json.dumps(txns[:30], indent=2)}
+
+{"Account baseline: " + json.dumps(context, indent=2) if context else "No historical baseline provided."}
+
+Detect fraud indicators:
+- Amount anomalies (unusually high/low)
+- Suspicious merchant names (typos, generic names, crypto)
+- Geographic inconsistencies
+- Rapid succession of transactions (velocity)
+- Round dollar amounts
+- Unusual transaction times
+- Duplicate charges
+
+Return ONLY valid JSON:
+{{
+  "findings": [
+    {{
+      "transaction": {{"date": "...", "label": "...", "amount": ...}},
+      "risk_score": 0.85,
+      "indicators": ["unusual_amount", "suspicious_merchant"],
+      "reason": "specific explanation",
+      "recommendation": "actionable advice"
+    }}
+  ],
+  "overall_risk": "low|medium|high",
+  "summary": "brief assessment"
+}}
+
+Be conservative - legitimate large purchases are common. Focus on truly suspicious patterns.
+"""
+    try:
+        resp = model.generate_content(prompt)
+        return _to_json_response(getattr(resp, "text", "") or "")
+    except Exception as e:
+        log.exception("Gemini fraud_detect failed")
+        return jsonify(error=str(e)), 500
 
 if __name__ == "__main__":
     # Gunicorn in container handles prod; this is only for local debug.
