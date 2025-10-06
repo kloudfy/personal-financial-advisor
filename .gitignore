@@ -253,3 +253,4 @@ mk/smoke.mk.bak.*
 mk/*.bak.*
 *.pyc
 __pycache__/
+mk/*.fixed
