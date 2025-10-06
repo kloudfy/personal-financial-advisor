@@ -553,3 +553,17 @@ agw-prod-verify:
 	kubectl run agw-curl-$$RANDOM --rm -it --restart=Never --image=curlimages/curl -- \
 	  sh -lc 'curl -sS -o /dev/null -w "%{http_code}\n" \
 	  http://agent-gateway.$${NS:-default}.svc.cluster.local:80/healthz'
+
+-include mk/smoke-fraud.mk
+
+-include mk/smoke-coach.mk
+
+-include mk/smoke-chat.mk
+
+-include mk/smoke-fast.mk
+
+-include mk/smoke-core.mk
+
+-include mk/smoke-data.mk
+
+-include mk/smoke-e2e.mk
