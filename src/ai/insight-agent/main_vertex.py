@@ -28,6 +28,14 @@ except Exception as e:
     log.exception("Vertex AI init failed: %s", e)
 
 model = GenerativeModel(MODEL_ID)
+# Deterministic + JSON outputs (tunable via env)
+GEN_CONFIG = {
+    "temperature": float(os.environ.get("INSIGHT_TEMP", "0.0")),
+    "top_p": float(os.environ.get("INSIGHT_TOP_P", "0.1")),
+    "top_k": int(os.environ.get("INSIGHT_TOP_K", "40")),
+    "max_output_tokens": int(os.environ.get("INSIGHT_MAX_TOKENS", "512")),
+    "response_mime_type": "application/json",
+}
 
 # ------------------------------------------------------------------------------
 # Health
@@ -74,7 +82,7 @@ def budget_coach():
     data = request.get_json(silent=True)
     txns = _extract_transactions(data)
     if not txns:
-        return jsonify(error="Expected JSON list or {'transactions': [...]} G"), 400
+        return jsonify(error="Expected JSON list or {'transactions': [...]}"), 400
 
     prompt = f"""
 You are a helpful personal financial coach. Analyze the user's bank transactions.
@@ -87,7 +95,7 @@ Transactions:
 {txns}
 """
     try:
-        resp = model.generate_content(prompt)
+        resp = model.generate_content(prompt, generation_config=GEN_CONFIG)
         return _to_json_response(getattr(resp, "text", "") or "")
     except Exception as e:
         log.exception("Gemini coach failed")
@@ -134,7 +142,7 @@ Transactions:
 {txns}
 """
     try:
-        resp = model.generate_content(prompt)
+        resp = model.generate_content(prompt, generation_config=GEN_CONFIG)
         return _to_json_response(getattr(resp, "text", "") or "")
     except Exception as e:
         log.exception("Gemini spending_analyze failed")
@@ -197,7 +205,7 @@ You are a fraud detection analyst for a personal finance app.
 Transactions to analyze:
 {json.dumps(txns[:30], indent=2)}
 
-{"Account baseline: " + json.dumps(context, indent=2) if context else "No historical baseline provided."}
+{("Account baseline:\n" + json.dumps(context, indent=2)) if context else "No historical baseline provided."}
 
 Detect fraud indicators:
 - Amount anomalies (unusually high/low)
@@ -212,7 +220,7 @@ Return ONLY valid JSON:
 {{
   "findings": [
     {{
-      "transaction": {{"date": "...", "label": "...", "amount": ...}},
+      "transaction": {{"date": "...", "label": "...", "amount": 0}},
       "risk_score": 0.85,
       "indicators": ["unusual_amount", "suspicious_merchant"],
       "reason": "specific explanation",
@@ -223,10 +231,13 @@ Return ONLY valid JSON:
   "summary": "brief assessment"
 }}
 
+Scoring policy:
+- Repeated inbound transfers ≥ 100,000 from the same source within 60 days = HIGH unless strong benign explanation is present.
+
 Be conservative - legitimate large purchases are common. Focus on truly suspicious patterns.
 """
     try:
-        resp = model.generate_content(prompt)
+        resp = model.generate_content(prompt, generation_config=GEN_CONFIG)
         return _to_json_response(getattr(resp, "text", "") or "")
     except Exception as e:
         log.exception("Gemini fraud_detect failed")

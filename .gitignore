@@ -254,3 +254,4 @@ mk/*.bak.*
 *.pyc
 __pycache__/
 mk/*.fixed
+Makefile.bak.*
