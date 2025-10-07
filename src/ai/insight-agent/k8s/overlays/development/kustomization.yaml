@@ -8,7 +8,7 @@ resources:
 - sa-wi.yaml
 
 images:
-- digest: sha256:dbae9cfe6e75b1584b66f9bb9e861a9ac1da8c3ac27aa21acb3f78e1ee6be0b8
+- digest: sha256:f627c6607f7c06af5d50280f6c9471e9375a8c06954419ed6b1790613ea1fc5e
   name: insight-agent
   newName: us-central1-docker.pkg.dev/gke-hackathon-469600/bank-of-anthos-repo/insight-agent
 
