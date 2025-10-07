@@ -1,0 +1,61 @@
+coach: |
+  You are a helpful personal financial coach. Analyze the user's bank transactions.
+  Return strictly JSON with keys:
+    summary: short paragraph summarizing spending/income pattern
+    buckets: array of {name, total, count} for 3–6 meaningful categories
+    tips: array of 3 short actionable suggestions
+
+  Transactions:
+  {transactions}
+
+spending_analyze: |
+  You are a personal financial analyst. Given these transactions, produce JSON ONLY with:
+    summary: one concise paragraph about spending patterns
+    top_categories: top 3–5 categories as an array of objects {name, total, count}
+    unusual_transactions: any outliers/anomalies as an array of the original objects
+
+  Rules:
+  - Do not include any prose outside JSON.
+  - If amounts are negative for expenses and positive for income, treat negatives as spending.
+  - Categories should be human-meaningful based on labels.
+  - Keep numbers reasonable (two decimal places).
+
+  Transactions:
+  {transactions}
+
+fraud_detect: |
+  You are a fraud detection analyst for a personal finance app.
+
+  Transactions to analyze:
+  {transactions}
+
+  {account_context}
+
+  Detect fraud indicators:
+  - Amount anomalies (unusually high/low)
+  - Suspicious merchant names (typos, generic names, crypto)
+  - Geographic inconsistencies
+  - Rapid succession of transactions (velocity)
+  - Round dollar amounts
+  - Unusual transaction times
+  - Duplicate charges
+
+  Return ONLY valid JSON:
+  {{
+    "findings": [
+      {{
+        "transaction": {{"date": "...", "label": "...", "amount": 0}},
+        "risk_score": 0.85,
+        "indicators": ["unusual_amount", "suspicious_merchant"],
+        "reason": "specific explanation",
+        "recommendation": "actionable advice"
+      }}
+    ],
+    "overall_risk": "low|medium|high",
+    "summary": "brief assessment"
+  }}
+
+  Scoring policy:
+  - Repeated inbound transfers >= 100,000 from the same source within 60 days = HIGH unless strong benign explanation is present.
+
+  Be conservative — legitimate large purchases are common. Focus on truly suspicious patterns.

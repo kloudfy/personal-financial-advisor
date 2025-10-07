@@ -7,4 +7,7 @@ gunicorn>=22.0.0,<24.0.0
 
 # (If not already present)
 requests>=2.31.0,<3.0.0
+
+PyYAML>=6.0
+
 # google-adk  # optional; only needed if INSIGHT_BACKEND=adk

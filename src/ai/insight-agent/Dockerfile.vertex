@@ -4,5 +4,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 COPY requirements-vertex.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 COPY main_vertex.py ./main.py
+COPY prompts.yaml ./prompts.yaml   
 EXPOSE 8080
 CMD ["gunicorn", "-b", ":8080", "--timeout", "120", "--graceful-timeout", "30", "--workers", "2", "--threads", "2", "main:app"]
+
+

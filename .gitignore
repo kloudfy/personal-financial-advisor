@@ -255,3 +255,6 @@ mk/*.bak.*
 __pycache__/
 mk/*.fixed
 Makefile.bak.*
+
+# local scratch
+k.tmp

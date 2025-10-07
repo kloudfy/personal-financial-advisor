@@ -2,9 +2,17 @@ import os
 import json
 import logging
 import warnings
+from statistics import mean, pstdev
+from typing import Any, Dict, List, Optional, Tuple
+import hashlib
+from pathlib import Path
+import time
+
 from flask import Flask, jsonify, request
 
+# ---------------------------
 # Vertex AI (server-side) SDK
+# ---------------------------
 from vertexai import init as vertex_init
 from vertexai.generative_models import GenerativeModel
 
@@ -20,6 +28,12 @@ except Exception:
         Schema = None
         HAS_SCHEMA = False
 
+# Optional YAML (externalized prompts). If not available, we'll use in-code defaults.
+try:
+    import yaml  # type: ignore
+except Exception:
+    yaml = None  # we will gracefully fall back
+
 # Silence Vertex SDK deprecation chatter in logs
 warnings.filterwarnings(
     "ignore",
@@ -28,20 +42,43 @@ warnings.filterwarnings(
     module="vertexai.*",
 )
 
+# ------------------------------------------------------------------------------
+# App / Logging
+# ------------------------------------------------------------------------------
 app = Flask(__name__)
 logging.basicConfig(
     level=os.environ.get("LOG_LEVEL", "INFO").upper(),
-    format="%(asctime)s %(levelname)s %(message)s"
+    format="%(asctime)s %(levelname)s %(message)s",
 )
 log = logging.getLogger("insight-agent")
 
 # ------------------------------------------------------------------------------
-# Config / Init
+# Environment / Config
 # ------------------------------------------------------------------------------
 PROJECT = os.environ.get("GOOGLE_CLOUD_PROJECT")  # may be empty if default creds
 LOCATION = os.environ.get("VERTEX_LOCATION", "us-central1")
 MODEL_ID = os.environ.get("VERTEX_MODEL", "gemini-2.5-pro")
 
+# Gemini generation config (deterministic + headroom)
+GEN_CONFIG: Dict[str, Any] = {
+    "temperature": float(os.environ.get("INSIGHT_TEMP", "0.0")),
+    "top_p": float(os.environ.get("INSIGHT_TOP_P", "0.1")),
+    "top_k": int(os.environ.get("INSIGHT_TOP_K", "40")),
+    "max_output_tokens": int(os.environ.get("INSIGHT_MAX_TOKENS", "2048")),
+    "response_mime_type": "application/json",
+}
+
+# Feature flags
+def _env_bool(name: str, default: bool = False) -> bool:
+    return os.environ.get(name, str(default)).strip().lower() in ("1", "true", "yes", "y")
+
+BL_ONLY = _env_bool("INSIGHT_BL_ONLY", False)
+BL_FALLBACK = _env_bool("INSIGHT_BL_FALLBACK", True)
+ENV_FAST_MODE = _env_bool("INSIGHT_FAST_MODE", False)
+
+MAX_TXNS = int(os.environ.get("INSIGHT_MAX_TXNS", "30"))  # configurable cap
+
+# Vertex init
 try:
     vertex_init(project=PROJECT or None, location=LOCATION)
     log.info("Vertex AI initialized: project=%s location=%s", PROJECT, LOCATION)
@@ -49,21 +86,77 @@ except Exception as e:
     log.exception("Vertex AI init failed: %s", e)
 
 model = GenerativeModel(MODEL_ID)
-
-# Deterministic + JSON outputs (tunable via env)
-GEN_CONFIG = {
-    "temperature": float(os.environ.get("INSIGHT_TEMP", "0.0")),
-    "top_p": float(os.environ.get("INSIGHT_TOP_P", "0.1")),
-    "top_k": int(os.environ.get("INSIGHT_TOP_K", "40")),
-    "max_output_tokens": int(os.environ.get("INSIGHT_MAX_TOKENS", "768")),
-    "response_mime_type": "application/json",
-}
+log.info(
+    "Using Vertex model=%s | GEN_CONFIG={temp=%.2f top_p=%.2f top_k=%d max_tokens=%d mime=%s} | BL_ONLY=%s BL_FALLBACK=%s FAST_MODE=%s MAX_TXNS=%d",
+    MODEL_ID,
+    GEN_CONFIG["temperature"],
+    GEN_CONFIG["top_p"],
+    GEN_CONFIG["top_k"],
+    GEN_CONFIG["max_output_tokens"],
+    GEN_CONFIG["response_mime_type"],
+    BL_ONLY,
+    BL_FALLBACK,
+    ENV_FAST_MODE,
+    MAX_TXNS,
+)
 
 def _cfg_with_schema(schema_obj_or_none):
     cfg = GEN_CONFIG.copy()
     if HAS_SCHEMA and schema_obj_or_none:
         cfg["response_schema"] = schema_obj_or_none
     return cfg
+
+# ------------------------------------------------------------------------------
+# Externalized prompts (prompts.yaml) with safe fallback
+# ------------------------------------------------------------------------------
+PROMPTS: Dict[str, str] = {}
+
+class _SafeDict(dict):
+    def __missing__(self, key):
+        return ""
+
+def load_prompts():
+    """Load prompts.yaml if present and PyYAML available; otherwise use defaults."""
+    global PROMPTS
+    default_prompts = {
+        "coach": (
+            "You are a helpful coach.\n"
+            "Return JSON with keys summary, buckets, tips.\n"
+            "Transactions:\n{transactions}\n"
+        ),
+        "spending_analyze": (
+            "You analyze spending.\n"
+            "Return JSON with summary, top_categories, unusual_transactions.\n"
+            "Transactions:\n{transactions}\n"
+        ),
+        "fraud_detect": (
+            "You detect fraud.\nTransactions:\n{transactions}\n{account_context}\n"
+            "Return JSON with findings, overall_risk, summary.\n"
+        ),
+    }
+
+    path = os.path.join(os.path.dirname(__file__), "prompts.yaml")
+    if yaml is None:
+        PROMPTS = default_prompts
+        log.warning("PyYAML not installed; using in-code default prompts.")
+        return
+
+    try:
+        with open(path, "r") as f:
+            loaded = yaml.safe_load(f) or {}
+            if not isinstance(loaded, dict):
+                raise ValueError("prompts.yaml did not deserialize to a dict")
+            PROMPTS = {**default_prompts, **{k: str(v) for k, v in loaded.items()}}
+            log.info("Loaded %d prompts from %s", len(PROMPTS), path)
+    except Exception as e:
+        PROMPTS = default_prompts
+        log.warning("Could not read %s (%s); using in-code default prompts.", path, e)
+
+def render_prompt(name: str, **kwargs) -> str:
+    tmpl = PROMPTS.get(name, "")
+    return tmpl.format_map(_SafeDict(kwargs))
+
+load_prompts()
 
 # ------------------------------------------------------------------------------
 # Optional strict schemas (if SDK supports Schema)
@@ -163,9 +256,9 @@ def healthz():
     return "ok", 200
 
 # ------------------------------------------------------------------------------
-# Helpers
+# Helpers: txns, parsing, JSON
 # ------------------------------------------------------------------------------
-def _extract_transactions(payload):
+def _extract_transactions(payload: Any) -> Optional[List[Dict[str, Any]]]:
     """
     Accepts either:
       - {"transactions": [...]}  OR
@@ -175,39 +268,32 @@ def _extract_transactions(payload):
     if payload is None:
         return None
     if isinstance(payload, list):
-        return payload
+        return payload  # type: ignore[return-value]
     if isinstance(payload, dict):
-        return payload.get("transactions")
+        tx = payload.get("transactions")
+        if isinstance(tx, list):
+            return tx  # type: ignore[return-value]
     return None
 
 def _resp_to_text(resp) -> str:
-    """Robustly extract text from Vertex responses (handles multi-part)."""
-    # 1) Preferred convenience property
-    t = getattr(resp, "text", None)
-    if t:
-        return t
-
-    # 2) Aggregate candidates/parts text
+    """Collect text from candidates/parts (newer SDKs), else use .text."""
+    if not resp:
+        return ""
     try:
-        pieces = []
-        for cand in getattr(resp, "candidates", []) or []:
-            content = getattr(cand, "content", None)
-            if not content:
-                continue
-            for part in getattr(content, "parts", []) or []:
-                pt = getattr(part, "text", None)
-                if pt:
-                    pieces.append(pt)
-        if pieces:
-            return "\n".join(pieces)
+        out: List[str] = []
+        for c in getattr(resp, "candidates", []) or []:
+            content = getattr(c, "content", None)
+            parts = getattr(content, "parts", None) if content else None
+            if parts:
+                for p in parts:
+                    t = getattr(p, "text", None)
+                    if t:
+                        out.append(t)
+        if out:
+            return "\n".join(out)
     except Exception:
         pass
-
-    # 3) Last-ditch: to_dict() or str()
-    try:
-        return json.dumps(resp.to_dict())
-    except Exception:
-        return str(resp)
+    return getattr(resp, "text", "") or ""
 
 def _clean_fences(text: str) -> str:
     cleaned = (text or "").strip()
@@ -215,10 +301,10 @@ def _clean_fences(text: str) -> str:
         cleaned = cleaned.replace(fence, "")
     return cleaned.strip()
 
-def _extract_balanced_json(s: str):
-    """
-    Return the first balanced top-level JSON object/array as a string, or None.
-    """
+def _extract_balanced_json(s: str) -> Optional[str]:
+    """Return the first balanced top-level JSON object/array as a string, or None."""
+    if not s:
+        return None
     start = None
     for i, ch in enumerate(s):
         if ch in "{[":
@@ -230,50 +316,162 @@ def _extract_balanced_json(s: str):
     close_ch = "}" if open_ch == "{" else "]"
 
     depth = 0
+    in_str = False
+    esc = False
     for j in range(start, len(s)):
         c = s[j]
+        if esc:
+            esc = False
+            continue
+        if c == "\\":
+            esc = True
+            continue
+        if c == '"' and not esc:
+            in_str = not in_str
+            continue
+        if in_str:
+            continue
         if c == open_ch:
             depth += 1
         elif c == close_ch:
             depth -= 1
             if depth == 0:
-                return s[start:j+1]
+                return s[start : j + 1]
     return None
 
-def _to_json_response(text: str):
-    """
-    Try very hard to return valid JSON from model output:
-      1) strip code fences
-      2) json.loads directly
-      3) extract a balanced {...} or [...] region and parse
-      4) structured fallback
-    """
+def _parse_json_to_obj(text: str) -> Optional[Any]:
+    """Attempt to parse to a Python object (clean fences, then load, then balanced JSON)."""
     cleaned = _clean_fences(text)
-
     try:
-        obj = json.loads(cleaned)
-        return json.dumps(obj), 200, {"Content-Type": "application/json"}
+        return json.loads(cleaned)
     except Exception:
         pass
-
     candidate = _extract_balanced_json(cleaned)
     if candidate:
         try:
-            obj = json.loads(candidate)
-            return json.dumps(obj), 200, {"Content-Type": "application/json"}
+            return json.loads(candidate)
         except Exception:
-            pass
+            return None
+    return None
 
-    fallback = {
+def _json_response(obj: Any) -> Tuple[str, int, Dict[str, str]]:
+    return json.dumps(obj), 200, {"Content-Type": "application/json"}
+
+def _generic_fallback() -> Dict[str, Any]:
+    return {
         "summary": "Model returned non-JSON output. Treating as low risk / empty analysis.",
         "findings": [],
         "overall_risk": "low",
         "top_categories": [],
         "unusual_transactions": [],
         "buckets": [],
-        "tips": []
+        "tips": [],
     }
-    return json.dumps(fallback), 200, {"Content-Type": "application/json"}
+
+# ------------------------------------------------------------------------------
+# Simple BL fallbacks
+# ------------------------------------------------------------------------------
+def bl_spending(txns: List[Dict[str, Any]]) -> Dict[str, Any]:
+    income = sum(float(t.get("amount", 0) or 0) for t in txns if float(t.get("amount", 0) or 0) > 0)
+    spend = sum(-float(t.get("amount", 0) or 0) for t in txns if float(t.get("amount", 0) or 0) < 0)
+    amounts = [abs(float(t.get("amount", 0) or 0)) for t in txns]
+    mu = mean(amounts) if amounts else 0.0
+    sigma = pstdev(amounts) if len(amounts) > 1 else 0.0
+    thresh = mu + 3 * (sigma if sigma > 1e-9 else 1e-9)
+    unusual = [t for t in txns if abs(float(t.get("amount", 0) or 0)) > thresh]
+
+    top_categories = []
+    if spend > 0:
+        top_categories.append({"name": "Expenses", "total": round(spend, 2), "count": sum(1 for t in txns if float(t.get("amount", 0) or 0) < 0)})
+    if income > 0:
+        top_categories.append({"name": "Income", "total": round(income, 2), "count": sum(1 for t in txns if float(t.get("amount", 0) or 0) > 0)})
+
+    return {
+        "summary": f"Income {income:.2f}, spending {spend:.2f}.",
+        "top_categories": top_categories[:5],
+        "unusual_transactions": unusual,
+    }
+
+def bl_coach(txns: List[Dict[str, Any]]) -> Dict[str, Any]:
+    s = bl_spending(txns)
+    income_total = next((c["total"] for c in s["top_categories"] if c["name"] == "Income"), 0.0)
+    spend_total = next((c["total"] for c in s["top_categories"] if c["name"] == "Expenses"), 0.0)
+    net = income_total - spend_total
+    buckets = [
+        {"name": "Income", "total": round(income_total, 2), "count": sum(1 for t in txns if float(t.get("amount", 0) or 0) > 0)},
+        {"name": "Spending", "total": round(spend_total, 2), "count": sum(1 for t in txns if float(t.get("amount", 0) or 0) < 0)},
+    ]
+    tips = []
+    if spend_total > 0:
+        tips.append("Set a weekly spending cap and monitor exceptions.")
+    if income_total > 0 and net > 0:
+        tips.append("Auto-transfer a % of income to savings after each paycheck.")
+    tips.append("Review any large or unusual transactions for accuracy.")
+    return {
+        "summary": f"Income {income_total:.2f}, spending {spend_total:.2f}. Net {net:.2f}.",
+        "buckets": buckets,
+        "tips": tips[:3],
+    }
+
+def bl_fraud(txns: List[Dict[str, Any]]) -> Dict[str, Any]:
+    findings = []
+    # Simple policies: very large inbound, round dollar large amounts
+    for t in txns:
+        amt = float(t.get("amount", 0) or 0)
+        indicators = []
+        risk = 0.0
+        if amt >= 100000:
+            indicators.append("unusual_amount")
+            risk = max(risk, 0.9)
+        if abs(amt) >= 10000 and abs(amt) % 100 == 0:
+            indicators.append("round_dollar_amount")
+            risk = max(risk, 0.6)
+        if indicators:
+            findings.append({
+                "transaction": {"date": t.get("date"), "label": t.get("label"), "amount": amt},
+                "risk_score": round(risk, 2),
+                "indicators": indicators,
+                "reason": "Heuristic screening flagged patterns requiring review.",
+                "recommendation": "Place a hold and verify the source with the customer if warranted.",
+            })
+
+    overall = "low"
+    if any(f["risk_score"] >= 0.85 for f in findings):
+        overall = "high"
+    elif any(f["risk_score"] >= 0.6 for f in findings):
+        overall = "medium"
+
+    return {
+        "findings": findings,
+        "overall_risk": overall,
+        "summary": "Heuristic baseline screening results.",
+    }
+
+# ------------------------------------------------------------------------------
+# Endpoint helpers
+# ------------------------------------------------------------------------------
+def _maybe_fast_filter(txns: List[Dict[str, Any]], fast_flag: bool) -> List[Dict[str, Any]]:
+    """If fast_flag, keep only strong outliers to shorten prompts; otherwise passthrough."""
+    if not fast_flag or not txns:
+        return txns
+    amounts = [abs(float(t.get("amount", 0) or 0)) for t in txns]
+    if not amounts:
+        return txns
+    mu = mean(amounts)
+    sigma = pstdev(amounts) if len(amounts) > 1 else 0.0
+    threshold = mu + 3 * (sigma if sigma > 1e-9 else 1e-9)
+    anomalies = [t for t in txns if abs(float(t.get("amount", 0) or 0)) > threshold]
+    return anomalies or txns  # fall back to all if none flagged
+
+def _handle_llm_json_or_fallback(raw_text: str, bl_obj: Dict[str, Any]) -> Tuple[str, int, Dict[str, str]]:
+    """Parse model text; if fail and BL_FALLBACK, return BL; else generic fallback."""
+    obj = _parse_json_to_obj(raw_text)
+    if obj is not None:
+        return _json_response(obj)
+    if BL_FALLBACK:
+        return _json_response(bl_obj)
+    # last resort generic
+    return _json_response(_generic_fallback())
 
 # ------------------------------------------------------------------------------
 # Budget Coach (for UI)
@@ -285,21 +483,23 @@ def budget_coach():
     if not txns:
         return jsonify(error="Expected JSON list or {'transactions': [...]}"), 400
 
-    prompt = f"""
-You are a helpful personal financial coach. Analyze the user's bank transactions.
-Return strictly JSON with keys:
-  summary: short paragraph summarizing spending/income pattern
-  buckets: array of {{name, total, count}} for 3–6 meaningful categories
-  tips: array of 3 short actionable suggestions
+    if BL_ONLY:
+        return _json_response(bl_coach(txns))
 
-Transactions:
-{txns}
-"""
+    prompt = render_prompt(
+        "coach",
+        transactions=json.dumps(txns[:MAX_TXNS], indent=2),
+    )
+
     try:
         resp = model.generate_content(prompt, generation_config=_cfg_with_schema(COACH_SCHEMA))
-        return _to_json_response(_resp_to_text(resp) or "")
+        text = _resp_to_text(resp) or ""
+        log.debug("coach: model text head=%r", text[:200])
+        return _handle_llm_json_or_fallback(text, bl_coach(txns))
     except Exception as e:
         log.exception("Gemini coach failed")
+        if BL_FALLBACK or BL_ONLY:
+            return _json_response(bl_coach(txns))
         return jsonify(error=str(e)), 500
 
 # ------------------------------------------------------------------------------
@@ -307,40 +507,28 @@ Transactions:
 # ------------------------------------------------------------------------------
 @app.post("/api/spending/analyze")
 def spending_analyze():
-    """
-    Input may be just a list, or {"transactions":[...]}.
-    Output:
-      {
-        "summary": "...",
-        "top_categories": [ {"name":"...", "total":1234.56, "count":10}, ... ],
-        "unusual_transactions": [ {"date":"...","label":"...","amount":...}, ... ]
-      }
-    """
     data = request.get_json(silent=True)
     txns = _extract_transactions(data)
     if not txns:
         return jsonify(error="Expected JSON list or {'transactions': [...]}"), 400
 
-    prompt = f"""
-You are a personal financial analyst. Given these transactions, produce JSON ONLY with:
-  summary: one concise paragraph about spending patterns
-  top_categories: top 3–5 categories as an array of objects {{name, total, count}}
-  unusual_transactions: any outliers/anomalies as an array of the original objects
+    if BL_ONLY:
+        return _json_response(bl_spending(txns))
 
-Rules:
-- Do not include any prose outside JSON.
-- If amounts are negative for expenses and positive for income, treat negatives as spending.
-- Categories should be human-meaningful based on labels.
-- Keep numbers reasonable (two decimal places).
+    prompt = render_prompt(
+        "spending_analyze",
+        transactions=json.dumps(txns[:MAX_TXNS], indent=2),
+    )
 
-Transactions:
-{txns}
-"""
     try:
         resp = model.generate_content(prompt, generation_config=_cfg_with_schema(SPENDING_SCHEMA))
-        return _to_json_response(_resp_to_text(resp) or "")
+        text = _resp_to_text(resp) or ""
+        log.debug("spending: model text head=%r", text[:200])
+        return _handle_llm_json_or_fallback(text, bl_spending(txns))
     except Exception as e:
         log.exception("Gemini spending_analyze failed")
+        if BL_FALLBACK or BL_ONLY:
+            return _json_response(bl_spending(txns))
         return jsonify(error=str(e)), 500
 
 # ------------------------------------------------------------------------------
@@ -348,92 +536,49 @@ Transactions:
 # ------------------------------------------------------------------------------
 @app.post("/api/fraud/detect")
 def fraud_detect():
-    """
-    Input:
-      { "transactions": [...], "account_context": {...} }  OR just [...]
-    Output (strict JSON):
-      {
-        "findings": [ { "transaction": {...}, "risk_score": 0.0-1.0, "indicators": [], "reason": "...", "recommendation": "..." }, ... ],
-        "overall_risk": "low|medium|high",
-        "summary": "..."
-      }
-    """
     data = request.get_json(silent=True)
     txns = _extract_transactions(data)
     if not txns:
         return jsonify(error="Expected JSON list or {'transactions': [...]}"), 400
 
-    # Optional fast-path: only escalate to Gemini if statistical outliers exist
-    use_fast_screen = request.args.get("fast", "false").lower() == "true"
-    if use_fast_screen:
-        from statistics import mean, pstdev
-        amounts = [abs(float(t.get("amount", 0))) for t in txns if isinstance(t, dict)]
-        if amounts:
-            mu = mean(amounts)
-            sigma = pstdev(amounts) if len(amounts) > 1 else 0.0
-            anomalies = [
-                t for t in txns
-                if abs(float(t.get("amount", 0))) > mu + 3 * (sigma if sigma > 1e-9 else 1e-9)
-            ]
-            if not anomalies:
-                return jsonify({
-                    "findings": [],
-                    "overall_risk": "low",
-                    "summary": "No statistical anomalies detected in transaction amounts."
-                }), 200
-            txns = anomalies
+    # Determine fast mode: query param overrides env default
+    fast_qs = request.args.get("fast")
+    fast_mode = ENV_FAST_MODE if fast_qs is None else (fast_qs.lower() in ("1", "true", "yes", "y"))
 
-    context = data.get("account_context", {}) if isinstance(data, dict) else {}
-    baseline_text = (
-        f"Account baseline:\n{json.dumps(context, indent=2)}"
-        if context else
-        "No historical baseline provided."
+    txns_for_prompt = _maybe_fast_filter(txns, fast_mode)
+    account_context = {}
+    if isinstance(data, dict):
+        account_context = data.get("account_context") or {}
+
+    if BL_ONLY:
+        return _json_response(bl_fraud(txns_for_prompt))
+
+    account_ctx_text = (
+        f"Account context:\n{json.dumps(account_context, indent=2)}"
+        if account_context else
+        ""
     )
 
-    prompt = f"""
-You are a fraud detection analyst for a personal finance app.
+    prompt = render_prompt(
+        "fraud_detect",
+        transactions=json.dumps(txns_for_prompt[:MAX_TXNS], indent=2),
+        account_context=account_ctx_text,
+    )
 
-Transactions to analyze:
-{json.dumps(txns[:30], indent=2)}
-
-{baseline_text}
-
-Detect fraud indicators:
-- Amount anomalies (unusually high/low)
-- Suspicious merchant names (typos, generic names, crypto)
-- Geographic inconsistencies
-- Rapid succession of transactions (velocity)
-- Round dollar amounts
-- Unusual transaction times
-- Duplicate charges
-
-Return ONLY valid JSON:
-{{
-  "findings": [
-    {{
-      "transaction": {{"date": "...", "label": "...", "amount": 0}},
-      "risk_score": 0.85,
-      "indicators": ["unusual_amount", "suspicious_merchant"],
-      "reason": "specific explanation",
-      "recommendation": "actionable advice"
-    }}
-  ],
-  "overall_risk": "low|medium|high",
-  "summary": "brief assessment"
-}}
-
-Scoring policy:
-- Repeated inbound transfers >= 100,000 from the same source within 60 days = HIGH unless strong benign explanation is present.
-
-Be conservative — legitimate large purchases are common. Focus on truly suspicious patterns.
-"""
     try:
         resp = model.generate_content(prompt, generation_config=_cfg_with_schema(FRAUD_SCHEMA))
-        return _to_json_response(_resp_to_text(resp) or "")
+        text = _resp_to_text(resp) or ""
+        log.debug("fraud: model text head=%r", text[:200])
+        return _handle_llm_json_or_fallback(text, bl_fraud(txns_for_prompt))
     except Exception as e:
         log.exception("Gemini fraud_detect failed")
+        if BL_FALLBACK or BL_ONLY:
+            return _json_response(bl_fraud(txns_for_prompt))
         return jsonify(error=str(e)), 500
 
+# ------------------------------------------------------------------------------
+# Local debug
+# ------------------------------------------------------------------------------
 if __name__ == "__main__":
     # Gunicorn in container handles prod; this is only for local debug.
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", "8080")), debug=False)
