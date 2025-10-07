@@ -8,28 +8,53 @@ spec:
       containers:
         - name: insight-agent
           env:
-            # Switch agent to Vertex mode (your app can branch on this)
+            # --- Runtime mode: Vertex ---
             - name: INSIGHT_BACKEND
               value: vertex
-            # Location/Model for Gemini on Vertex
+
+            # --- Vertex model/location ---
             - name: VERTEX_LOCATION
               value: us-central1
             - name: VERTEX_MODEL
               value: gemini-2.5-pro
-            # Optional: project if not already provided via config/env
+
+            # Optional: project (via ConfigMap)
             - name: GOOGLE_CLOUD_PROJECT
               valueFrom:
                 configMapKeyRef:
                   name: environment-config
                   key: GOOGLE_CLOUD_PROJECT
+
+            # --- App/infra knobs ---
             - name: ENABLE_TRACING
               value: "false"
             - name: LOG_LEVEL
-              value: info
+              value: INFO   # lower/upper both work; code uppercases
+
+            # Downstream service URIs (cluster DNS)
             - name: USERSERVICE_URI
               value: http://userservice:8080
             - name: MCP_SERVER_URI
               value: http://mcp-server:8080
+
+            # --- Gemini generation config (deterministic + bigger output headroom) ---
+            - name: INSIGHT_TEMP
+              value: "0.0"
+            - name: INSIGHT_TOP_P
+              value: "0.1"
+            - name: INSIGHT_TOP_K
+              value: "40"
+            - name: INSIGHT_MAX_TOKENS
+              value: "2048"
+
+            # --- Business-logic (BL) controls in server code ---
+            # If true, skip LLM entirely and use BL only.
+            - name: INSIGHT_BL_ONLY
+              value: "false"
+            # If LLM output isn't valid JSON, fall back to BL result instead of generic fallback.
+            - name: INSIGHT_BL_FALLBACK
+              value: "true"
+
           readinessProbe:
             httpGet:
               path: /api/healthz
