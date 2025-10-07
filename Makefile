@@ -565,3 +565,5 @@ agw-prod-verify:
 -include mk/smoke-spending.mk
 
 -include mk/ui-demo.mk
+
+-include mk/insight-dev.mk

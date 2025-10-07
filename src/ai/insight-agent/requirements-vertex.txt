@@ -1,4 +1,10 @@
-flask
-gunicorn
-google-cloud-aiplatform
+# Vertex AI SDK with response_schema in stable API
+google-cloud-aiplatform>=1.66.0,<2.0.0
+
+# Web stack
+flask>=3.0.0,<4.0.0
+gunicorn>=22.0.0,<24.0.0
+
+# (If not already present)
+requests>=2.31.0,<3.0.0
 # google-adk  # optional; only needed if INSIGHT_BACKEND=adk

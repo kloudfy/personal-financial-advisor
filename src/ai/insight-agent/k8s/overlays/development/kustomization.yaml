@@ -8,9 +8,9 @@ resources:
 - sa-wi.yaml
 
 images:
-- name: insight-agent
+- digest: sha256:dbae9cfe6e75b1584b66f9bb9e861a9ac1da8c3ac27aa21acb3f78e1ee6be0b8
+  name: insight-agent
   newName: us-central1-docker.pkg.dev/gke-hackathon-469600/bank-of-anthos-repo/insight-agent
-  newTag: fraud-1759725658
 
 patches:
 - path: patch-dev-env.yaml
