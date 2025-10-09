@@ -4,8 +4,8 @@
 
 This document provides two views:
 
-* **Judge-Friendly Quickstart** — one-page, ~10 commands for hackathon judges
-* **Full Runbook** — detailed step-by-step for developers/teammates
+- **Judge-Friendly Quickstart** — one-page, ~10 commands for hackathon judges
+- **Full Runbook** — detailed step-by-step for developers/teammates
 
 ---
 
