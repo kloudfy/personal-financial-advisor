@@ -11,7 +11,7 @@ import streamlit as st
 # - In-cluster defaults resolve via Cluster DNS
 # ------------------------------------------------------------------
 USERSVC = os.getenv("USERSVC") or os.getenv("USERSERVICE_URI") or "http://userservice:8080"
-MCPSVC  = os.getenv("MCPSVC")  or os.getenv("MCP_SERVER_URI")  or "http://mcp-server:8080"
+MCPSVC  = os.getenv("MCPSVC")  or os.getenv("MCP_SERVER_URI")  or "http://mcp-server"
 INSIGHT = os.getenv("INSIGHT") or os.getenv("INSIGHT_URI")     or "http://insight-agent/api"  # Vertex build uses /api base
 
 DEFAULT_ACCT   = os.getenv("DEMO_ACCOUNT", "1011226111")

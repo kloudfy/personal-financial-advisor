@@ -9,6 +9,6 @@ patches:
 - path: patch-rolling.yaml
 
 images:
-- name: REPLACE_ME_UI_IMAGE
+- name: budget-coach-ui
   newName: us-central1-docker.pkg.dev/gke-hackathon-469600/bank-of-anthos-repo/budget-coach-ui
-  newTag: v0.1.0
+  newTag: v0.1.1
