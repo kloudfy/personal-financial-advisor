@@ -14,7 +14,7 @@ spec:
 
             # --- Vertex model/location ---
             - name: VERTEX_LOCATION
-              value: us-central1
+              value: global
             - name: VERTEX_MODEL
               value: gemini-2.5-pro
 
@@ -37,23 +37,15 @@ spec:
             - name: MCP_SERVER_URI
               value: http://mcp-server:8080
 
-            # --- Gemini generation config (deterministic + bigger output headroom) ---
-            - name: INSIGHT_TEMP
-              value: "0.0"
-            - name: INSIGHT_TOP_P
-              value: "0.1"
-            - name: INSIGHT_TOP_K
-              value: "40"
-            - name: INSIGHT_MAX_TOKENS
+            # --- Gemini generation config (DSQ-friendly) ---
+            - name: GENAI_CONCURRENCY
+              value: "2"
+            - name: GENAI_RPM
+              value: "18"
+            - name: GENAI_MAX_TOKENS
               value: "2048"
-
-            # --- Business-logic (BL) controls in server code ---
-            # If true, skip LLM entirely and use BL only.
-            - name: INSIGHT_BL_ONLY
-              value: "false"
-            # If LLM output isn't valid JSON, fall back to BL result instead of generic fallback.
-            - name: INSIGHT_BL_FALLBACK
-              value: "true"
+            - name: GENAI_THINK_TOKENS
+              value: "1024"
 
           readinessProbe:
             httpGet:
