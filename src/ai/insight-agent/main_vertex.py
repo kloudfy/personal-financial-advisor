@@ -2,7 +2,7 @@ import os
 import json
 import logging
 import asyncio, time, random
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 import hashlib
 from pathlib import Path
 
@@ -126,7 +126,7 @@ class PromptStore:
     def render(self, key: str, **vars) -> Tuple[str, str]:
         self._maybe_reload()
         tmpl = self._prompts.get(key, self.defaults.get(key, ""))
-        tag = f"{key} @{self._map_sha8.get(key, '00000000')}"
+        tag = f"{key}@{self._map_sha8.get(key, '00000000')}"
         try:
             text = tmpl.format(**vars)
         except Exception:
@@ -158,6 +158,71 @@ def _to_json_response(text: str, tag: str) -> JSONResponse:
             "buckets": [], "tips": []
         }
     return JSONResponse(content=obj, headers={"X-Insight-Prompt": tag})
+
+# --- JSON Mode Schemas (Fraud / Spending / Coach) ---
+COACH_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "summary": {"type": "string"},
+        "budget_buckets": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "total": {"type": "number"},
+                    "count": {"type": "integer"},
+                },
+                "required": ["name", "total", "count"],
+            },
+        },
+        "tips": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["summary", "budget_buckets", "tips"],
+}
+
+SPENDING_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "summary": {"type": "string"},
+        "top_categories": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "total": {"type": "number"},
+                    "count": {"type": "integer"},
+                },
+                "required": ["name", "total", "count"],
+            },
+        },
+        "unusual_transactions": {"type": "array", "items": {"type": "object"}},
+    },
+    "required": ["summary", "top_categories", "unusual_transactions"],
+}
+
+FRAUD_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "findings": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "transaction": {"type": "object"},
+                    "risk_score": {"type": "number"},
+                    "reason": {"type": "string"},
+                    "recommendation": {"type": "string"},
+                },
+                "required": ["transaction", "risk_score", "reason", "recommendation"],
+            },
+        },
+        "overall_risk": {"type": "string"},
+        "summary": {"type": "string"},
+    },
+    "required": ["findings", "overall_risk", "summary"],
+}
 
 # ------------------------------------------------------------------------------
 # Pydantic Models
