@@ -3,8 +3,11 @@ import json
 import logging
 import asyncio, time, random
 from typing import Any, Dict, List, Optional
+import hashlib
+from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 import yaml
 from google import genai
@@ -35,6 +38,8 @@ RPM_LIMIT = int(os.getenv("GENAI_RPM", "18"))
 _sem = asyncio.Semaphore(CONCURRENCY)
 _req_ts: list[float] = []
 _RPM_WINDOW = 60.0
+
+PROMPTS_FILE = os.getenv("PROMPTS_FILE", os.path.join(os.path.dirname(__file__), "prompts.yaml"))
 
 # Google GenAI Init
 client = genai.Client(vertexai=True, project=PROJECT, location=LOCATION)
@@ -80,103 +85,79 @@ def _clamped_thinking_budget(model_id: str, budget: int) -> int:
         return max(128, budget)
     return max(0, budget)
 
-def _get_prompt(name: str) -> str:
+# ------------------------------------------------------------------------------
+# Prompt Store with Live-Reload
+# ------------------------------------------------------------------------------
+DEFAULT_PROMPTS: Dict[str, str] = {
+    "coach": "... {transactions}\n",
+    "spending_analyze": "... {transactions}\n",
+    "fraud_detect": "... {transactions}\n{account_context}\n",
+}
+
+class PromptStore:
+    def __init__(self, file_path: str, defaults: Dict[str, str]):
+        self.path = Path(file_path)
+        self.defaults = defaults
+        self._mtime: Optional[float] = None
+        self._prompts = defaults
+        self._map_sha8 = {k: self._sha8(v) for k, v in defaults.items()}
+        self._maybe_reload(initial=True)
+
+    def _sha8(self, s: str) -> str:
+        return hashlib.sha256((s or "").encode("utf-8")).hexdigest()[:8]
+
+    def _maybe_reload(self, initial=False):
+        try:
+            if self.path.exists():
+                m = self.path.stat().st_mtime
+                if self._mtime is None or m > self._mtime:
+                    import yaml
+                    data = yaml.safe_load(self.path.read_text()) or {}
+                    assert isinstance(data, dict)
+                    merged = {**self.defaults, **{k: str(v) for k, v in data.items()}}
+                    self._prompts = merged
+                    self._map_sha8 = {k: self._sha8(v) for k, v in merged.items()}
+                    self._mtime = m
+        except Exception:
+            if initial:
+                self._prompts = self.defaults
+                self._map_sha8 = {k: self._sha8(v) for k, v in self.defaults.items()}
+
+    def render(self, key: str, **vars) -> Tuple[str, str]:
+        self._maybe_reload()
+        tmpl = self._prompts.get(key, self.defaults.get(key, ""))
+        tag = f"{key} @{self._map_sha8.get(key, '00000000')}"
+        try:
+            text = tmpl.format(**vars)
+        except Exception:
+            text = tmpl
+        return text, tag
+
+prompts = PromptStore(PROMPTS_FILE, DEFAULT_PROMPTS)
+
+def _to_json_response(text: str, tag: str) -> JSONResponse:
+    def _balanced(s: str) -> Optional[str]:
+        start = s.find("{")
+        end = s.rfind("}")
+        return s[start:end+1] if start != -1 and end != -1 and end > start else None
+
+    cleaned = text.strip().strip("`")
+    obj = None
     try:
-        return PROMPTS[name]
-    except KeyError:
-        log.error("Prompt '%s' not found in prompts.yaml", name)
-        raise HTTPException(status_code=500, detail=f"Prompt '{name}' not configured")
-
-# ------------------------------------------------------------------------------
-# Externalized prompts (prompts.yaml)
-# ------------------------------------------------------------------------------
-PROMPTS: Dict[str, str] = {}
-
-@app.on_event("startup")
-def load_prompts():
-    """Load prompts.yaml."""
-    global PROMPTS
-    path = os.path.join(os.path.dirname(__file__), "prompts.yaml")
-    try:
-        with open(path, "r") as f:
-            PROMPTS = yaml.safe_load(f)
-            log.info("Loaded %d prompts from %s", len(PROMPTS), path)
-    except Exception as e:
-        log.critical("Could not load prompts.yaml: %s", e)
-        raise
-
-# ------------------------------------------------------------------------------
-# Schemas for JSON Mode (plain dicts)
-# ------------------------------------------------------------------------------
-COACH_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "summary": {"type": "string"},
-        "budget_buckets": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "name": {"type": "string"},
-                    "total": {"type": "number"},
-                    "count": {"type": "integer"},
-                },
-                "required": ["name", "total", "count"],
-            },
-        },
-        "tips": {
-            "type": "array",
-            "items": {"type": "string"}
-        },
-    },
-    "required": ["summary", "budget_buckets", "tips"],
-}
-
-SPENDING_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "summary": {"type": "string"},
-        "top_categories": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "name": {"type": "string"},
-                    "total": {"type": "number"},
-                    "count": {"type": "integer"},
-                },
-                "required": ["name", "total", "count"],
-            },
-        },
-        "unusual_transactions": {
-            "type": "array",
-            "items": {"type": "object"},
-        },
-    },
-    "required": ["summary", "top_categories", "unusual_transactions"],
-}
-
-FRAUD_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "findings": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "transaction": {"type": "object"},
-                    "risk_score": {"type": "number"},
-                    "reason": {"type": "string"},
-                    "recommendation": {"type": "string"},
-                },
-                "required": ["transaction", "risk_score", "reason", "recommendation"],
-            },
-        },
-        "overall_risk": {"type": "string"},
-        "summary": {"type": "string"},
-    },
-    "required": ["findings", "overall_risk", "summary"],
-}
+        obj = json.loads(cleaned)
+    except Exception:
+        candidate = _balanced(cleaned)
+        if candidate:
+            try: obj = json.loads(candidate)
+            except Exception: pass
+    if obj is None:
+        obj = {
+            "summary": "Model returned non-JSON output; using empty analysis.",
+            "findings": [], "overall_risk": "low",
+            "top_categories": [], "unusual_transactions": [],
+            "buckets": [], "tips": []
+        }
+    return JSONResponse(content=obj, headers={"X-Insight-Prompt": tag})
 
 # ------------------------------------------------------------------------------
 # Pydantic Models
@@ -204,9 +185,7 @@ async def budget_coach(request: TransactionRequest):
     if request.transactions is None:
         raise HTTPException(status_code=400, detail="Could not find 'transactions' in the payload")
 
-    prompt = _get_prompt("budget_coach").format(
-        transactions=json.dumps([t.dict() for t in request.transactions[:MAX_TXNS]], indent=2)
-    )
+    prompt_text, tag = prompts.render("coach", transactions=json.dumps([t.dict() for t in request.transactions[:MAX_TXNS]], indent=2))
     
     try:
         generation_config = types.GenerateContentConfig(
@@ -223,11 +202,11 @@ async def budget_coach(request: TransactionRequest):
                 return await loop.run_in_executor(
                     None,
                     lambda: client.models.generate_content(
-                        model=MODEL_ID, contents=prompt, config=generation_config
+                        model=MODEL_ID, contents=prompt_text, config=generation_config
                     ),
                 )
             resp = await _call_with_retry(_do)
-            return json.loads(resp.text)
+            return _to_json_response(resp.text, tag)
     except genai_errors.APIError as e:
         log.exception("Gemini budget_coach API error: %s", e)
         if getattr(e, "code", None) == 429:
@@ -242,9 +221,7 @@ async def spending_analyze(request: TransactionRequest):
     if request.transactions is None:
         raise HTTPException(status_code=400, detail="Could not find 'transactions' in the payload")
 
-    prompt = _get_prompt("spending_analyze").format(
-        transactions=json.dumps([t.dict() for t in request.transactions[:MAX_TXNS]], indent=2)
-    )
+    prompt_text, tag = prompts.render("spending_analyze", transactions=json.dumps([t.dict() for t in request.transactions[:MAX_TXNS]], indent=2))
 
     try:
         generation_config = types.GenerateContentConfig(
@@ -261,11 +238,11 @@ async def spending_analyze(request: TransactionRequest):
                 return await loop.run_in_executor(
                     None,
                     lambda: client.models.generate_content(
-                        model=MODEL_ID, contents=prompt, config=generation_config
+                        model=MODEL_ID, contents=prompt_text, config=generation_config
                     ),
                 )
             resp = await _call_with_retry(_do)
-            return json.loads(resp.text)
+            return _to_json_response(resp.text, tag)
     except genai_errors.APIError as e:
         log.exception("Gemini spending_analyze API error: %s", e)
         if getattr(e, "code", None) == 429:
@@ -280,9 +257,7 @@ async def fraud_detect(request: TransactionRequest):
     if request.transactions is None:
         raise HTTPException(status_code=400, detail="Could not find 'transactions' in the payload")
 
-    prompt = _get_prompt("fraud_detect").format(
-        transactions=json.dumps([t.dict() for t in request.transactions[:MAX_TXNS]], indent=2)
-    )
+    prompt_text, tag = prompts.render("fraud_detect", transactions=json.dumps([t.dict() for t in request.transactions[:MAX_TXNS]], indent=2))
 
     try:
         generation_config = types.GenerateContentConfig(
@@ -299,11 +274,11 @@ async def fraud_detect(request: TransactionRequest):
                 return await loop.run_in_executor(
                     None,
                     lambda: client.models.generate_content(
-                        model=MODEL_ID, contents=prompt, config=generation_config
+                        model=MODEL_ID, contents=prompt_text, config=generation_config
                     ),
                 )
             resp = await _call_with_retry(_do)
-            return json.loads(resp.text)
+            return _to_json_response(resp.text, tag)
     except genai_errors.APIError as e:
         log.exception("Gemini fraud_detect API error: %s", e)
         if getattr(e, "code", None) == 429:
