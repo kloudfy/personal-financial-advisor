@@ -2,31 +2,19 @@
 import os
 import json
 import logging
-import warnings
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
-from flask import Flask, jsonify, request
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
 import yaml
-from google.api_core import retry
-
-# ---------------------------
-# Vertex AI (server-side) SDK
-# ---------------------------
-from vertexai import init as vertex_init
-from vertexai.generative_models import GenerationConfig, GenerativeModel
-
-# Silence Vertex SDK deprecation chatter in logs
-warnings.filterwarnings(
-    "ignore",
-    message="This feature is deprecated.*",
-    category=UserWarning,
-    module="vertexai.*",
-)
+from google import genai
+from google.genai import types
+from google.api_core import exceptions
 
 # ------------------------------------------------------------------------------
 # App / Logging
 # ------------------------------------------------------------------------------
-app = Flask(__name__)
+app = FastAPI(title="Insight Agent", version="2.0.0")
 logging.basicConfig(
     level=os.environ.get("LOG_LEVEL", "INFO").upper(),
     format="%(asctime)s %(levelname)s %(message)s",
@@ -40,37 +28,22 @@ PROJECT = os.environ.get("GOOGLE_CLOUD_PROJECT")
 LOCATION = os.environ.get("VERTEX_LOCATION", "us-central1")
 
 # Model Selection
-SUPPORTED_MODELS = {
-    "fast": "gemini-2.5-pro",
-    "quality": "gemini-2.5-pro",
-}
-# Prioritize the specific VERTEX_MODEL env var if it's set
-MODEL_ID_FROM_ENV = os.environ.get("VERTEX_MODEL")
-if MODEL_ID_FROM_ENV:
-    MODEL_ID = MODEL_ID_FROM_ENV
-    SELECTED_MODEL_KEY = "custom"
-else:
-    SELECTED_MODEL_KEY = os.environ.get("MODEL_PROFILE", "quality")
-    MODEL_ID = SUPPORTED_MODELS.get(SELECTED_MODEL_KEY, SUPPORTED_MODELS["quality"])
-
+MODEL_ID = os.environ.get("VERTEX_MODEL", "gemini-2.5-pro")
 
 MAX_TXNS = int(os.environ.get("MAX_TRANSACTIONS_PER_PROMPT", "50"))
 
-# Vertex init
-try:
-    vertex_init(project=PROJECT or None, location=LOCATION)
-    log.info("Vertex AI initialized: project=%s location=%s", PROJECT, LOCATION)
-except Exception as e:
-    log.exception("Vertex AI init failed: %s", e)
+# Google GenAI Init
+client = genai.Client(vertexai=True, project=PROJECT, location=LOCATION)
+log.info("Google GenAI client initialized for Vertex AI: project=%s location=%s", PROJECT, LOCATION)
 
-model = GenerativeModel(MODEL_ID)
-log.info("Using Vertex AI Model: %s (Profile: %s)", MODEL_ID, SELECTED_MODEL_KEY)
+log.info("Using Google GenAI Model: %s", MODEL_ID)
 
 # ------------------------------------------------------------------------------
 # Externalized prompts (prompts.yaml)
 # ------------------------------------------------------------------------------
 PROMPTS: Dict[str, str] = {}
 
+@app.on_event("startup")
 def load_prompts():
     """Load prompts.yaml."""
     global PROMPTS
@@ -82,8 +55,6 @@ def load_prompts():
     except Exception as e:
         log.critical("Could not load prompts.yaml: %s", e)
         raise
-
-load_prompts()
 
 # ------------------------------------------------------------------------------
 # Schemas for JSON Mode (plain dicts)
@@ -159,105 +130,109 @@ FRAUD_SCHEMA = {
 }
 
 # ------------------------------------------------------------------------------
+# Pydantic Models
+# ------------------------------------------------------------------------------
+class Transaction(BaseModel):
+    date: str
+    label: str
+    amount: float
+
+class TransactionRequest(BaseModel):
+    transactions: List[Transaction]
+
+# ------------------------------------------------------------------------------
 # Health
 # ------------------------------------------------------------------------------
 @app.get("/api/healthz")
 def healthz():
-    return "ok", 200
-
-# ------------------------------------------------------------------------------
-# Helpers
-# ------------------------------------------------------------------------------
-def _extract_transactions(payload: Any) -> Optional[List[Dict[str, Any]]]:
-    if payload is None:
-        return None
-    if isinstance(payload, list):
-        return payload
-    if isinstance(payload, dict):
-        return payload.get("transactions")
-    return None
-
-@retry.Retry()
-def _generate_content_with_retry(prompt, generation_config):
-    return model.generate_content(prompt, generation_config=generation_config)
+    return {"status": "ok"}
 
 # ------------------------------------------------------------------------------
 # API Endpoints
 # ------------------------------------------------------------------------------
 @app.post("/api/budget/coach")
-def budget_coach():
-    data = request.get_json(silent=True)
-    txns = _extract_transactions(data)
-    if txns is None:
-        return jsonify(error="Could not find 'transactions' in the payload"), 400
+async def budget_coach(request: TransactionRequest):
+    if request.transactions is None:
+        raise HTTPException(status_code=400, detail="Could not find 'transactions' in the payload")
 
     prompt = PROMPTS["budget_coach"].format(
-        transactions=json.dumps(txns[:MAX_TXNS], indent=2)
+        transactions=json.dumps([t.dict() for t in request.transactions[:MAX_TXNS]], indent=2)
     )
     
     try:
-        generation_config = GenerationConfig(
+        generation_config = types.GenerateContentConfig(
             temperature=0.0,
             max_output_tokens=8192,
             response_mime_type="application/json",
             response_schema=COACH_SCHEMA,
         )
-        resp = _generate_content_with_retry(prompt, generation_config)
-        return resp.text, 200, {"Content-Type": "application/json"}
+        resp = client.models.generate_content(
+            model=MODEL_ID,
+            contents=prompt, 
+            config=generation_config
+        )
+        return json.loads(resp.text)
+    except exceptions.ResourceExhausted as e:
+        log.error(f"Gemini budget_coach rate limited: {e}")
+        raise HTTPException(status_code=429, detail="Service temporarily overloaded. Please try again in a moment.")
     except Exception as e:
         log.exception("Gemini budget_coach call failed")
-        return jsonify(error=str(e)), 500
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/spending/analyze")
-def spending_analyze():
-    data = request.get_json(silent=True)
-    txns = _extract_transactions(data)
-    if txns is None:
-        return jsonify(error="Could not find 'transactions' in the payload"), 400
+async def spending_analyze(request: TransactionRequest):
+    if request.transactions is None:
+        raise HTTPException(status_code=400, detail="Could not find 'transactions' in the payload")
 
     prompt = PROMPTS["spending_analyze"].format(
-        transactions=json.dumps(txns[:MAX_TXNS], indent=2)
+        transactions=json.dumps([t.dict() for t in request.transactions[:MAX_TXNS]], indent=2)
     )
 
     try:
-        generation_config = GenerationConfig(
+        generation_config = types.GenerateContentConfig(
             temperature=0.0,
             max_output_tokens=8192,
             response_mime_type="application/json",
             response_schema=SPENDING_SCHEMA,
         )
-        resp = _generate_content_with_retry(prompt, generation_config)
-        return resp.text, 200, {"Content-Type": "application/json"}
+        resp = client.models.generate_content(
+            model=MODEL_ID,
+            contents=prompt, 
+            config=generation_config
+        )
+        return json.loads(resp.text)
+    except exceptions.ResourceExhausted as e:
+        log.error(f"Gemini spending_analyze rate limited: {e}")
+        raise HTTPException(status_code=429, detail="Service temporarily overloaded. Please try again in a moment.")
     except Exception as e:
         log.exception("Gemini spending_analyze call failed")
-        return jsonify(error=str(e)), 500
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/fraud/detect")
-def fraud_detect():
-    data = request.get_json(silent=True)
-    txns = _extract_transactions(data)
-    if txns is None:
-        return jsonify(error="Could not find 'transactions' in the payload"), 400
+async def fraud_detect(request: TransactionRequest):
+    if request.transactions is None:
+        raise HTTPException(status_code=400, detail="Could not find 'transactions' in the payload")
 
     prompt = PROMPTS["fraud_detect"].format(
-        transactions=json.dumps(txns[:MAX_TXNS], indent=2)
+        transactions=json.dumps([t.dict() for t in request.transactions[:MAX_TXNS]], indent=2)
     )
 
     try:
-        generation_config = GenerationConfig(
+        generation_config = types.GenerateContentConfig(
             temperature=0.0,
             max_output_tokens=8192,
             response_mime_type="application/json",
             response_schema=FRAUD_SCHEMA,
         )
-        resp = _generate_content_with_retry(prompt, generation_config)
-        return resp.text, 200, {"Content-Type": "application/json"}
+        resp = client.models.generate_content(
+            model=MODEL_ID,
+            contents=prompt, 
+            config=generation_config
+        )
+        return json.loads(resp.text)
+    except exceptions.ResourceExhausted as e:
+        log.error(f"Gemini fraud_detect rate limited: {e}")
+        raise HTTPException(status_code=429, detail="Service temporarily overloaded. Please try again in a moment.")
     except Exception as e:
         log.exception("Gemini fraud_detect call failed")
-        return jsonify(error=str(e)), 500
-
-# ------------------------------------------------------------------------------
-# Local debug
-# ------------------------------------------------------------------------------
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", "8080")), debug=False)
+        raise HTTPException(status_code=500, detail=str(e))

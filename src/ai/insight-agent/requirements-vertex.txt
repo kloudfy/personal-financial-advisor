@@ -1,13 +1,19 @@
-# Vertex AI SDK with response_schema in stable API
-google-cloud-aiplatform>=1.66.0,<2.0.0
+# Core dependencies
+fastapi
+uvicorn[standard]
+pydantic
 
-# Web stack
-flask>=3.0.0,<4.0.0
-gunicorn>=22.0.0,<24.0.0
+# NEW: Google Gen AI SDK
+google-genai
 
-# (If not already present)
-requests>=2.31.0,<3.0.0
+# Google Cloud Auth (still needed for authentication)
+google-auth
+
+# Logging and utilities
+python-json-logger
+
+# For retry logic (already included in google-api-core)
+google-api-core
 
 PyYAML>=6.0
-
-# google-adk  # optional; only needed if INSIGHT_BACKEND=adk
+requests>=2.31.0,<3.0.0
