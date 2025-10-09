@@ -41,5 +41,5 @@ curl -fsS -m 30 --connect-timeout 3 -H "Authorization: Bearer $T" \
 | jq "{transactions: .}" \
 | curl -fsS -m 60 --connect-timeout 3 -X POST -H "Content-Type: application/json" -d @- \
     http://insight-agent.'"$NS"'.svc.cluster.local/api/budget/coach \
-| jq -C '"'"'{summary, top_categories: ((.top_categories // .buckets // [])[0:3])}'"'"'
+| jq -C "{summary, budget_buckets: (.budget_buckets[0:3])}"
 '
