@@ -25,6 +25,7 @@ kubectl get ns "${NS}" >/dev/null
 # 1) Restore Deployments
 if [[ -f "${STATE_DIR}/deploy_replicas.tsv" ]]; then
   echo "==> Restoring Deployments replicas"
+  cat "${STATE_DIR}/deploy_replicas.tsv"
   while IFS=$'\t' read -r name replicas; do
     [[ -n "${name}" ]] || continue
     replicas="${replicas:-1}"
@@ -37,6 +38,7 @@ fi
 # 2) Restore StatefulSets
 if [[ -f "${STATE_DIR}/sts_replicas.tsv" ]]; then
   echo "==> Restoring StatefulSets replicas"
+  cat "${STATE_DIR}/sts_replicas.tsv"
   while IFS=$'\t' read -r name replicas; do
     [[ -n "${name}" ]] || continue
     replicas="${replicas:-1}"
