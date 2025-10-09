@@ -8,12 +8,29 @@ spec:
     apiVersion: apps/v1
     kind: Deployment
     name: insight-agent
-  minReplicas: 1  # ← change from 0 → 1
-  maxReplicas: 1
+  minReplicas: 2
+  maxReplicas: 6
   metrics:
   - type: Resource
     resource:
       name: cpu
       target:
         type: Utilization
-        averageUtilization: 50
+        averageUtilization: 60
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+      - type: Percent
+        value: 100
+        periodSeconds: 60
+      - type: Pods
+        value: 2
+        periodSeconds: 60
+      selectPolicy: Max
+    scaleDown:
+      stabilizationWindowSeconds: 120
+      policies:
+      - type: Percent
+        value: 50
+        periodSeconds: 60

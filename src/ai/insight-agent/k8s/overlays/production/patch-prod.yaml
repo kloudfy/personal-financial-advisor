@@ -8,7 +8,50 @@ spec:
       containers:
         - name: insight-agent
           env:
+            # Observability
             - name: ENABLE_TRACING
               value: "true"
             - name: LOG_LEVEL
               value: info
+
+            # Runtime mode (FYI: code uses vertexai=True already; this is optional)
+            - name: GOOGLE_GENAI_USE_VERTEXAI
+              value: "true"
+
+            # Vertex/DSQ config
+            - name: VERTEX_LOCATION
+              value: global
+            - name: VERTEX_MODEL
+              value: gemini-2.5-pro
+            - name: GOOGLE_CLOUD_PROJECT
+              valueFrom:
+                configMapKeyRef:
+                  name: vertex-config
+                  key: GOOGLE_CLOUD_PROJECT
+
+            # DSQ-friendly generation controls
+            - name: GENAI_CONCURRENCY
+              value: "2"
+            - name: GENAI_RPM
+              value: "18"
+            - name: GENAI_MAX_TOKENS
+              value: "2048"
+            - name: GENAI_THINK_TOKENS
+              value: "1024"
+
+          readinessProbe:
+            httpGet:
+              path: /api/healthz
+              port: 8080
+            initialDelaySeconds: 20
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /api/healthz
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
