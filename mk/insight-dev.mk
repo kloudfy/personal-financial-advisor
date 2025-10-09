@@ -24,7 +24,7 @@ endef
 insight-dev-build: ## Build & push :$(DEV_TAG) (defaults to Vertex Dockerfile)
 	$(call _require_reg)
 	@echo "→ Building $(IA_IMG):$(DEV_TAG) with $(IA_DOCKERFILE)"
-	docker buildx build --platform linux/amd64 \
+	docker buildx build --no-cache --platform linux/amd64 \
 	  -t $(IA_IMG):$(DEV_TAG) \
 	  -f $(IA_DOCKERFILE) $(IA_DIR) --push
 	@echo "✅ Pushed $(IA_IMG):$(DEV_TAG)"

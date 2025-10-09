@@ -12,6 +12,11 @@
 
 ## 🔧 Scripts-first smokes (recommended)
 
+> **Note on Smoke Test Data:** These scripts use minimal, hardcoded data payloads
+> to verify service health and API contracts. They are not intended to test the
+> quality of the AI model's analysis and will not produce the same rich, data-driven
+> output as the full end-to-end UI flow.
+
 All smokes are tiny bash scripts in `scripts/` so they’re easy to run locally and from CI; Make targets are thin wrappers.
 
 **Scripts**

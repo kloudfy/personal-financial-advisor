@@ -49,8 +49,5 @@ curl -fsS -m 30 --connect-timeout 3 -H "Authorization: Bearer $T" \
 | jq "{transactions: .}" \
 | curl -fsS -m 60 --connect-timeout 3 -X POST -H "Content-Type: application/json" -d @- \
     "http://insight-agent.'"$NS"'.svc.cluster.local/api/fraud/detect$QS" \
-| jq -C '"'"'if .findings
-             then {overall_risk, n_findings: (.findings|length), sample_finding: (.findings[0])}
-             else {note:"model output fallback", overall_risk: (.overall_risk // "unknown"), n_findings: 0, sample_finding: null}
-           end'"'"'
+
 '
