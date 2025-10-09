@@ -56,7 +56,7 @@ make demo-check
 
 A lightweight UI that lets judges run the **Budget Coach** flow end-to-end using live microservices.
 
-**Flow:** `userservice → mcp-server → insight-agent (/api/budget/coach in Vertex build; /budget/coach in legacy) → Vertex AI Gemini`
+**Flow:** `userservice → mcp-server → insight-agent (/api/*) → Vertex AI Gemini`
 
 ### 1) Port-forward cluster services
 
@@ -105,18 +105,7 @@ Open: **[http://localhost:8501](http://localhost:8501)** and Click **Generate Bu
 * **Tips:** 3–5 short recommendations
 * **Raw JSON:** the API response (collapsed by default in P1)
 
-### Fast-mode (default on insight-agent)
-* Compacts transactions, requests **strict JSON** from Gemini
-* Normalizes bucket percentages to ≈100
-* In-pod TTL cache (default 180s) for instant repeats
 
-Tune at runtime:
-
-```bash
-kubectl set env deploy/insight-agent INSIGHT_FAST_MODE=true INSIGHT_CACHE_TTL_SEC=180
-kubectl -n default rollout restart deploy/insight-agent
-kubectl -n default rollout status deploy/insight-agent
-```
 
 ---
 
@@ -186,17 +175,19 @@ src/
 ---
 
 ## What we added/changed (high level)
+* **`insight-agent` Refactor:**
+  * Migrated from Flask to FastAPI for a modern, async-first framework.
+  * Replaced the deprecated `google-cloud-aiplatform` library with the recommended `google-genai` SDK.
+  * Implemented a robust resilience strategy with rate limiting, concurrency control, and exponential backoff.
+  * Added prompt provenance via the `X-Insight-Prompt` header.
+  * Decoupled prompts from the application code using a `ConfigMap`.
 * **Agents & MCP Server**
   * `src/ai/mcp-server/` – Model Context Protocol server exposing BoA tools/signals to agents.
   * `src/ai/agent-gateway/` – lightweight gateway that fronts the MCP server for clients.
-  * `src/ai/insight-agent/` – new service that builds a budget plan (summary + buckets + tips) via:
-   * **Gemini API (API key)** — simple for demos.
-   * **Vertex AI (recommended)** — Workload Identity, no keys.
-
+  * `src/ai/insight-agent/` – new service that builds a budget plan (summary + buckets + tips) via Vertex AI.
 * **Kubernetes overlays & config hygiene**
   * Kustomize overlays (`base`, `overlays/development`, `overlays/production`) following BoA conventions.
   * Dev overlays keep things quiet (e.g., metrics export off where supported).
-
 * **Security/ops hygiene**
   * Prefer **Workload Identity**; avoid SA keys in git.
   * Backlog: migrate any local keys to **Secret Manager**.
@@ -348,62 +339,99 @@ kustomize build src/ai/insight-agent/k8s/overlays/production | kubectl apply -f 
 
 ## Releasing New Images (dev overlay)
 
-Typical flow:
+Typical flow for the `insight-agent`:
 ```bash
-# Example: frontend v0.1.3
+# 1. Build and push the image with a new tag
 export REG="${REGION}-docker.pkg.dev/${PROJECT}/${REPO}"
-export FRONTEND_TAG=v0.1.3
+export INSIGHT_AGENT_TAG=v3.1.0 # or some other new tag
+make insight-dev-build DEV_TAG=${INSIGHT_AGENT_TAG}
 
-docker buildx build --platform linux/amd64 \
-  -t ${REG}/frontend:${FRONTEND_TAG} \
-  -f src/frontend/Dockerfile src/frontend --push
+# 2. Update the dev overlay to use the new tag
+(cd src/ai/insight-agent/k8s/overlays/development && \
+  kustomize edit set image insight-agent=${REG}/insight-agent:${INSIGHT_AGENT_TAG})
 
-# Pin tag in the dev overlay
-(cd src/frontend/k8s/overlays/development && \
-  kustomize edit set image frontend=${REG}/frontend:${FRONTEND_TAG})
-
-# Apply + restart + verify
-kustomize build src/frontend/k8s/overlays/development | kubectl apply -f -
-kubectl -n default rollout restart deploy/frontend
-kubectl -n default rollout status deploy/frontend
+# 3. Apply the changes and verify the rollout
+make insight-dev-rollout DEV_TAG=${INSIGHT_AGENT_TAG}
 make dev-smoke
 ```
 
-Prefer digests for critical paths: `frontend@sha256:<digest>`.
+Prefer digests for critical paths: `insight-agent@sha256:<digest>`.
 
 ---
 
-## Project Status Update: Application Stabilization and Bug Fixes
+## Project Status Update: `insight-agent` Refactor and Modernization
 
-The app is fully functional; all smokes pass. Highlights:
-* **Reliable smokes:** `scripts/e2e-smoke.sh` with authenticated flow + retry loop.
-* **MCP ↔ AGW:** `agent-gateway` calls `GET /transactions/<acct>` and forwards JWTs.
-* **Auth path fixed:** Smokes fetch valid JWTs and use the correct account id for authorization.
-* **transactionhistory WI:** Workload Identity + Monitoring/Trace roles; pod stable.
-* **TMA boot:** `transaction-monitoring-agent` waits on userservice readiness.
-* **Frontend config:** Clean service addresses (`servicename:port`) and var names aligned.
-* **Ledgerwriter fix:** Env mapping for `BALANCES_API_ADDR` from `service-api-config`.
+The `insight-agent` service has been completely refactored and modernized. Highlights:
+* **FastAPI Migration:** The `insight-agent` has been successfully migrated from Flask to FastAPI.
+* **`google-genai` SDK:** The application now uses the recommended `google-genai` SDK.
+* **Resilience and Performance:** We have implemented a robust resilience strategy with rate limiting, concurrency control, and exponential backoff.
+* **Provenance and Decoupling:** The application now includes prompt provenance in the `X-Insight-Prompt` header and the prompts are decoupled from the application code using a `ConfigMap`.
+* **UI Fixes:** The UI has been updated to work with the new backend and all known issues have been resolved.
 
 ---
 
 ## Lessons learned (short)
 * **Immutable `spec.selector`:** Don’t patch Deployment selectors; patch pod template labels instead.
-* **`ConfigMap` changes need restarts:** Use `kubectl rollout restart deploy/...`.
+* **`ConfigMap` changes need restarts:** Use `kubectl rollout restart deploy/...` or use a hash in the `ConfigMap` name to trigger a rolling update.
 * **Service stabilization & retries:** After rollout “`Success`,” allow DNS/NEG to settle; keep a short retry loop.
 * **Prefer `Job` for tests:** `Job + wait + logs` avoids attach races in CI.
 * **Workload Identity > SA keys:** Prefer WI for GKE.
 * **Prebuilt smoke images:** Shipping the **vertex-smoke** image removed transient timeout issues on Autopilot.
+* **API contract changes:** When migrating a backend, be mindful of the API contract with the frontend.
+* **Kustomize image pinning:** Be aware of how Kustomize overlays pin images and how to update them.
 
 ---
 
-## Architecture (quick callouts)
+## Architecture
 
-> Budget Coach UI (Streamlit) consumes insight-agent /budget/coach and is exposed either locally (port-forward) or via LB for judges.
-For Vertex builds, the UI points to `/api/budget/coach` by exporting I`NSIGHT=http://…/api`.
+```
+                        +------------------+
+                        |                  |
+                        |   Browser / UI   |
+                        |  (Streamlit)     |
+                        |                  |
+                        +--------+---------+
+                                 |
+                                 | HTTP/REST
+                                 |
+                        +--------v---------+
+                        |                  |
+                        |  Agent Gateway   |
+                        |  (Flask)         |
+                        |                  |
+                        +--------+---------+
+                                 |
+                                 | gRPC
+                                 |
++-----------------+     +--------v---------+      +-----------------+
+|                 |     |                  |      |                 |
+|  userservice    +----->   mcp-server     <------>  transaction-   |
+|  (Java)         |     |   (Python)       |      |   history       |
+|                 |     |                  |      |   (Java)        |
++-----------------+     +--------+---------+      +-----------------+
+                                 |
+                                 | gRPC
+                                 |
+                        +--------v---------+
+                        |                  |
+                        |  insight-agent   |
+                        |  (FastAPI)       |
+                        |                  |
+                        +--------+---------+
+                                 |
+                                 | HTTPS
+                                 |
+                        +--------v---------+
+                        |                  |
+                        |  Vertex AI       |
+                        |  (Gemini)        |
+                        |                  |
+                        +------------------+
+```
 
 **Gateway & MCP path**
 ```bash
-client → agent-gateway (svc:port 80) → mcp-server (svc:8080) → transactionhistory (svc:8080) → Cloud SQL
+client → agent-gateway (svc:port 80) → mcp-server (svc:80) → transactionhistory (svc:8080) → Cloud SQL
 ```
 **Insight path (Vertex mode)**
 ```bash
@@ -411,6 +439,7 @@ agent-gateway → insight-agent (svc:80→pod:8080, KSA=insight-agent) --WI→ G
 ```
 **Notes**
 * AGW is exposed internally via K8s Service on **port 80** (smokes use this).
+* `mcp-server` is exposed internally via K8s Service on **port 80**.
 * WI binding: roles/iam.workloadIdentityUser on the GSA, plus `roles/aiplatform.user` for Vertex.
 * Images come from Artifact Registry (`${REGION}-docker.pkg.dev/${PROJECT}/${REPO}`).
 

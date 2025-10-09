@@ -37,7 +37,7 @@ make vertex-smoke
 make e2e-auth-smoke
 ```
 
-✅ If you see “OK” from vertex-smoke and structured JSON from e2e-auth-smoke, the demo succeeded.
+✅ If you see “OK” from vertex-smoke and structured JSON from e2e-auth-smoke, the demo succeeded. You should also see the `X-Insight-Prompt` header in the responses from the `insight-agent`.
 
 ⸻
 
@@ -83,8 +83,8 @@ NS=default ACCT=1011226111 WINDOW=30 make smoke-spending
 * `smoke-core` prints three OKs and `TOKEN_LEN=…` (~800–900)
 * `smoke-data` shows a 3-row sample of transactions and a JSON coach summary
 * `smoke-e2e` prints the first `${SMOKE_HEAD}` bytes of `/chat` JSON (look for `"agent":"agent-gateway"` and `"result"`)
-* `smoke-fraud` prints `overall_risk` and a `sample_finding` with `risk_score` + `reason`
-* `smoke-spending` prints `summary`, `top_categories`, and `n_unusual`
+* `smoke-fraud` prints `overall_risk` and a `sample_finding` with `risk_score` + `reason`, and the `X-Insight-Prompt` header.
+* `smoke-spending` prints `summary`, `top_categories`, and `n_unusual`, and the `X-Insight-Prompt` header.
 
 ⸻
 
@@ -147,6 +147,8 @@ Expected output:
 OK
 ```
 
+You should also see the `X-Insight-Prompt` header in the responses from the `insight-agent`.
+
 ⸻
 
 ## 🖥️ Budget Coach UI (optional but nice)
@@ -157,7 +159,7 @@ OK
 
 ```bash
 kubectl -n default port-forward deploy/userservice 8081:8080
-kubectl -n default port-forward deploy/mcp-server 8082:8080
+kubectl -n default port-forward deploy/mcp-server 8082:80
 kubectl -n default port-forward svc/insight-agent 8083:80
 ```
 
@@ -166,11 +168,7 @@ kubectl -n default port-forward svc/insight-agent 8083:80
 ```bash
 export USERSVC=http://localhost:8081
 export MCPSVC=http://localhost:8082
-
-# Vertex build (insight-agent exposes /api/budget/coach)
 export INSIGHT=http://localhost:8083/api
-# Legacy build (insight-agent exposes /budget/coach)
-# export INSIGHT=http://localhost:8083
 ```
 
 3. Run the UI locally:
