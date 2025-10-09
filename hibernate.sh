@@ -41,16 +41,15 @@ kubectl -n "${NS}" get statefulset -o name | xargs -r -n1 kubectl -n "${NS}" sca
 echo "==> Snapshot HPAs and set minReplicas=0"
 kubectl -n "${NS}" get hpa -o json > "${STATE_DIR}/hpas.json" || echo '{"items":[]}' > "${STATE_DIR}/hpas.json"
 while IFS= read -r H; do
-  kubectl -n "${NS}" patch hpa "${H}" --type='json' -p='[{"op":"replace","path":"/spec/minReplicas","value":0}]' || true
+  kubectl -n "${NS}" delete hpa "${H}" || true
 done < <(jq -r '.items[].metadata.name' "${STATE_DIR}/hpas.json")
 
 # 4) Snapshot + suspend CronJobs
 echo "==> Snapshot CronJobs and suspend=true"
 kubectl -n "${NS}" get cronjob -o json > "${STATE_DIR}/cronjobs.json" || echo '{"items":[]}' > "${STATE_DIR}/cronjobs.json"
-mapfile -t CJNAMES < <(jq -r '.items[].metadata.name' "${STATE_DIR}/cronjobs.json")
-for CJ in "${CJNAMES[@]:-}"; do
+while IFS= read -r CJ; do
   kubectl -n "${NS}" patch cronjob "${CJ}" --type=merge -p '{"spec":{"suspend":true}}' || true
-done
+done < <(jq -r '.items[].metadata.name' "${STATE_DIR}/cronjobs.json")
 
 # 5) Snapshot LB services and convert to ClusterIP
 echo "==> Snapshot LoadBalancer Services and switch to ClusterIP"
