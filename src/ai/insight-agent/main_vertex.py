@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from flask import Flask, jsonify, request
 import yaml
+from google.api_core import retry
 
 # ---------------------------
 # Vertex AI (server-side) SDK
@@ -176,6 +177,10 @@ def _extract_transactions(payload: Any) -> Optional[List[Dict[str, Any]]]:
         return payload.get("transactions")
     return None
 
+@retry.Retry()
+def _generate_content_with_retry(prompt, generation_config):
+    return model.generate_content(prompt, generation_config=generation_config)
+
 # ------------------------------------------------------------------------------
 # API Endpoints
 # ------------------------------------------------------------------------------
@@ -197,7 +202,7 @@ def budget_coach():
             response_mime_type="application/json",
             response_schema=COACH_SCHEMA,
         )
-        resp = model.generate_content(prompt, generation_config=generation_config)
+        resp = _generate_content_with_retry(prompt, generation_config)
         return resp.text, 200, {"Content-Type": "application/json"}
     except Exception as e:
         log.exception("Gemini budget_coach call failed")
@@ -221,7 +226,7 @@ def spending_analyze():
             response_mime_type="application/json",
             response_schema=SPENDING_SCHEMA,
         )
-        resp = model.generate_content(prompt, generation_config=generation_config)
+        resp = _generate_content_with_retry(prompt, generation_config)
         return resp.text, 200, {"Content-Type": "application/json"}
     except Exception as e:
         log.exception("Gemini spending_analyze call failed")
@@ -245,7 +250,7 @@ def fraud_detect():
             response_mime_type="application/json",
             response_schema=FRAUD_SCHEMA,
         )
-        resp = model.generate_content(prompt, generation_config=generation_config)
+        resp = _generate_content_with_retry(prompt, generation_config)
         return resp.text, 200, {"Content-Type": "application/json"}
     except Exception as e:
         log.exception("Gemini fraud_detect call failed")
